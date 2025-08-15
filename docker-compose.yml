@@ -1,0 +1,22 @@
+services:
+  foundryvtt:
+    image: felddy/foundryvtt:13
+    container_name: bardic-inspiration-dev
+    hostname: localhost
+    init: true
+    restart: unless-stopped
+    ports:
+      - "30000:30000"
+    environment:
+      - FOUNDRY_USERNAME=${FOUNDRY_USERNAME}
+      - FOUNDRY_PASSWORD=${FOUNDRY_PASSWORD}
+      - FOUNDRY_ADMIN_KEY=${FOUNDRY_ADMIN_KEY}
+      - FOUNDRY_MINIFY_STATIC_FILES=false
+      - FOUNDRY_HOSTNAME=localhost
+      - CONTAINER_PRESERVE_CONFIG=false
+    networks:
+      - foundry-dev
+
+networks:
+  foundry-dev:
+    driver: bridge

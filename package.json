@@ -1,0 +1,17 @@
+{
+  "name": "bardic-inspiration",
+  "version": "0.1.0",
+  "description": "A Foundry VTT module",
+  "scripts": {
+    "dev": "docker compose up -d",
+    "dev:stop": "docker compose down",
+    "dev:logs": "docker logs -f bardic-inspiration-dev",
+    "dev:restart": "docker compose restart",
+    "build": "npm run build:zip",
+    "build:zip": "zip -r module.zip module.json scripts/ styles/ templates/ languages/ LICENSE README.md"
+  },
+  "keywords": ["foundryvtt", "module"],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {}
+}

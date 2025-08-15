@@ -1,0 +1,33 @@
+# Environment variables
+.env
+
+# FoundryVTT data directory
+foundry-data/
+
+# Node modules
+node_modules/
+
+# Build outputs
+dist/
+build/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Module zip files
+*.zip
+
+# Temporary files
+.tmp/
+temp/
