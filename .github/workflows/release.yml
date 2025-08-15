@@ -1,4 +1,4 @@
-name: Release Creation
+name: Release Module
 
 on:
   release:
@@ -8,31 +8,213 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout Repository
+      uses: actions/checkout@v4
 
-    - name: Substitute Manifest and Download Links For Versioned Ones
-      id: sub_manifest_link_version
-      uses: microsoft/variable-substitution@v1
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
       with:
-        files: 'module.json'
-      env:
-        version: ${{github.event.release.tag_name}}
-        url: https://github.com/${{github.repository}}
-        manifest: https://github.com/${{github.repository}}/releases/latest/download/module.json
-        download: https://github.com/${{github.repository}}/releases/download/${{github.event.release.tag_name}}/module.zip
+        node-version: '18'
 
-    - name: Create ZIP archive
-      run: zip -r ./module.zip module.json scripts/ styles/ templates/ languages/ LICENSE README.md
+    - name: Validate Module Manifest
+      run: |
+        echo "🔍 Validating module.json..."
+        
+        # Check if module.json exists
+        if [ ! -f "module.json" ]; then
+          echo "❌ module.json not found!"
+          exit 1
+        fi
+        
+        # Validate JSON syntax
+        if ! node -e "JSON.parse(require('fs').readFileSync('module.json', 'utf8'))"; then
+          echo "❌ Invalid JSON syntax in module.json!"
+          exit 1
+        fi
+        
+        # Check required fields
+        node -e "
+          const manifest = JSON.parse(require('fs').readFileSync('module.json', 'utf8'));
+          const required = ['id', 'title', 'description', 'version', 'compatibility'];
+          const missing = required.filter(field => !manifest[field]);
+          if (missing.length > 0) {
+            console.log('❌ Missing required fields:', missing.join(', '));
+            process.exit(1);
+          }
+          console.log('✅ Module manifest validation passed');
+        "
 
-    - name: Update Release with Files
-      id: create_version_release
+    - name: Validate File Structure
+      run: |
+        echo "🔍 Validating file structure..."
+        
+        # Check for scripts referenced in module.json
+        if [ -f "module.json" ]; then
+          node -e "
+            const manifest = JSON.parse(require('fs').readFileSync('module.json', 'utf8'));
+            const fs = require('fs');
+            let errors = [];
+            
+            // Check esmodules
+            if (manifest.esmodules) {
+              manifest.esmodules.forEach(script => {
+                if (!fs.existsSync(script)) {
+                  errors.push('Missing esmodule: ' + script);
+                }
+              });
+            }
+            
+            // Check styles
+            if (manifest.styles) {
+              manifest.styles.forEach(style => {
+                if (!fs.existsSync(style)) {
+                  errors.push('Missing style: ' + style);
+                }
+              });
+            }
+            
+            // Check languages
+            if (manifest.languages) {
+              manifest.languages.forEach(lang => {
+                if (!fs.existsSync(lang.path)) {
+                  errors.push('Missing language file: ' + lang.path);
+                }
+              });
+            }
+            
+            if (errors.length > 0) {
+              console.log('❌ File validation errors:');
+              errors.forEach(err => console.log('  - ' + err));
+              process.exit(1);
+            }
+            console.log('✅ File structure validation passed');
+          "
+        fi
+
+    - name: Check Version Consistency
+      run: |
+        echo "🔍 Checking version consistency..."
+        RELEASE_VERSION="${{ github.event.release.tag_name }}"
+        RELEASE_VERSION="${RELEASE_VERSION#v}" # Remove 'v' prefix if present
+        
+        MANIFEST_VERSION=$(node -e "console.log(JSON.parse(require('fs').readFileSync('module.json', 'utf8')).version)")
+        
+        if [ "$RELEASE_VERSION" != "$MANIFEST_VERSION" ]; then
+          echo "❌ Version mismatch! Release: $RELEASE_VERSION, Manifest: $MANIFEST_VERSION"
+          echo "Please ensure the module.json version matches the release tag"
+          exit 1
+        fi
+        
+        echo "✅ Version consistency check passed: $RELEASE_VERSION"
+
+    - name: Generate Enhanced Changelog
+      id: changelog
+      run: |
+        echo "📝 Generating changelog..."
+        
+        # Get commits since last release
+        LAST_RELEASE=$(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")
+        
+        if [ -n "$LAST_RELEASE" ]; then
+          COMMITS=$(git log --pretty=format:"- %s" $LAST_RELEASE..HEAD)
+        else
+          COMMITS=$(git log --pretty=format:"- %s")
+        fi
+        
+        # Create enhanced changelog
+        CHANGELOG=$(cat << EOF
+        ## What's Changed
+        
+        $COMMITS
+        
+        ## Installation
+        
+        Install this module using the following manifest URL:
+        \`\`\`
+        https://github.com/${{ github.repository }}/releases/latest/download/module.json
+        \`\`\`
+        
+        ## Compatibility
+        
+        - **Minimum Foundry Version**: $(node -e "console.log(JSON.parse(require('fs').readFileSync('module.json', 'utf8')).compatibility.minimum)")
+        - **Verified Foundry Version**: $(node -e "console.log(JSON.parse(require('fs').readFileSync('module.json', 'utf8')).compatibility.verified)")
+        
+        ---
+        *This release was automatically generated and validated.*
+        EOF
+        )
+        
+        # Save changelog to file and output
+        echo "$CHANGELOG" > RELEASE_CHANGELOG.md
+        echo "changelog<<EOF" >> $GITHUB_OUTPUT
+        echo "$CHANGELOG" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Update Manifest URLs
+      run: |
+        echo "🔄 Updating manifest URLs for release..."
+        
+        # Use sed instead of variable substitution for better control
+        sed -i "s|\"version\": \".*\"|\"version\": \"${{ github.event.release.tag_name }}\"|g" module.json
+        sed -i "s|\"url\": \".*\"|\"url\": \"https://github.com/${{ github.repository }}\"|g" module.json
+        sed -i "s|\"manifest\": \".*\"|\"manifest\": \"https://github.com/${{ github.repository }}/releases/latest/download/module.json\"|g" module.json
+        sed -i "s|\"download\": \".*\"|\"download\": \"https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/module.zip\"|g" module.json
+        
+        echo "✅ Manifest URLs updated"
+
+    - name: Validate Updated Manifest
+      run: |
+        echo "🔍 Re-validating updated manifest..."
+        
+        # Validate JSON is still valid after sed operations
+        if ! node -e "JSON.parse(require('fs').readFileSync('module.json', 'utf8'))"; then
+          echo "❌ Manifest corrupted during URL updates!"
+          exit 1
+        fi
+        
+        echo "✅ Updated manifest is valid"
+
+    - name: Create Module Archive
+      run: |
+        echo "📦 Creating module archive..."
+        
+        # Create zip with proper structure
+        zip -r ./module.zip \
+          module.json \
+          scripts/ \
+          styles/ \
+          languages/ \
+          templates/ \
+          LICENSE \
+          README.md \
+          -x "*.git*" "node_modules/*" "foundry-data/*" ".env*"
+        
+        # Verify zip contents
+        echo "📋 Archive contents:"
+        unzip -l module.zip
+        
+        echo "✅ Module archive created successfully"
+
+    - name: Update Release with Assets and Changelog
       uses: ncipollo/release-action@v1
       with:
         allowUpdates: true
         name: ${{ github.event.release.name }}
+        tag: ${{ github.event.release.tag_name }}
+        body: ${{ steps.changelog.outputs.changelog }}
+        artifacts: './module.json,./module.zip'
+        token: ${{ secrets.GITHUB_TOKEN }}
         draft: false
         prerelease: false
-        token: ${{ secrets.GITHUB_TOKEN }}
-        artifacts: './module.json, ./module.zip'
-        tag: ${{ github.event.release.tag_name }}
-        body: ${{ github.event.release.body }}
+
+    - name: Release Summary
+      run: |
+        echo "🎉 Release completed successfully!"
+        echo ""
+        echo "📦 Release Details:"
+        echo "  • Version: ${{ github.event.release.tag_name }}"
+        echo "  • Repository: ${{ github.repository }}"
+        echo "  • Manifest URL: https://github.com/${{ github.repository }}/releases/latest/download/module.json"
+        echo "  • Download URL: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/module.zip"
+        echo ""
+        echo "🔗 Users can install this module using the manifest URL above."

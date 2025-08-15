@@ -1,17 +1,28 @@
 {
   "name": "bardic-inspiration",
-  "version": "0.1.0",
+  "version": "0.1.9",
   "description": "A Foundry VTT module",
+  "type": "module",
   "scripts": {
     "dev": "docker compose up -d",
     "dev:stop": "docker compose down",
     "dev:logs": "docker logs -f bardic-inspiration-dev",
     "dev:restart": "docker compose restart",
-    "build": "npm run build:zip",
-    "build:zip": "zip -r module.zip module.json scripts/ styles/ templates/ languages/ LICENSE README.md"
+    "dev:vite": "npm run dev && npm run vite:dev",
+    "vite:dev": "vite",
+    "vite:build": "vite build",
+    "vite:preview": "vite preview",
+    "validate": "node scripts/validate-module.cjs",
+    "build": "npm run validate && npm run vite:build && npm run build:zip",
+    "build:zip": "powershell -Command \"Compress-Archive -Path module.json,dist,styles,templates,languages,LICENSE,README.md -DestinationPath module.zip -Force\""
   },
   "keywords": ["foundryvtt", "module"],
   "author": "Your Name",
   "license": "MIT",
-  "devDependencies": {}
+  "devDependencies": {
+    "@league-of-foundry-developers/foundry-vtt-types": "^12.331.0",
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "vite": "^5.0.0"
+  }
 }

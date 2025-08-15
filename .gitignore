@@ -11,6 +11,9 @@ node_modules/
 dist/
 build/
 
+# TypeScript
+*.tsbuildinfo
+
 # IDE files
 .vscode/
 .idea/
@@ -31,3 +34,6 @@ npm-debug.log*
 # Temporary files
 .tmp/
 temp/
+
+# Vite
+.vite/

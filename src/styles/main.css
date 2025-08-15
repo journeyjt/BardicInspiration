@@ -1,0 +1,247 @@
+/* Bardic Inspiration Module Styles */
+/* CSS will be processed by Vite and injected automatically */
+
+:root {
+  --bardic-inspiration-primary: #8B4513;
+  --bardic-inspiration-secondary: #A0522D;
+  --bardic-inspiration-success: #4CAF50;
+  --bardic-inspiration-success-hover: #45a049;
+}
+
+.bardic-inspiration {
+  /* Base styles for bardic inspiration elements */
+  font-family: "Signika", sans-serif;
+}
+
+.bardic-inspiration-dice {
+  /* Styles for inspiration dice displays */
+  display: inline-block;
+  margin: 2px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  background: linear-gradient(45deg, var(--bardic-inspiration-primary), var(--bardic-inspiration-secondary));
+  color: #FFF;
+  font-weight: bold;
+  text-shadow: 1px 1px 1px rgba(0,0,0,0.5);
+  transition: transform 0.2s ease;
+}
+
+.bardic-inspiration-dice:hover {
+  transform: scale(1.05);
+}
+
+.bardic-inspiration-button {
+  /* Styles for inspiration action buttons */
+  background: var(--bardic-inspiration-success);
+  border: none;
+  color: white;
+  padding: 8px 16px;
+  text-align: center;
+  text-decoration: none;
+  display: inline-block;
+  font-size: 14px;
+  margin: 4px 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.3s ease;
+}
+
+.bardic-inspiration-button:hover {
+  background: var(--bardic-inspiration-success-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.bardic-inspiration-used {
+  /* Styles for used/expended inspiration */
+  opacity: 0.5;
+  text-decoration: line-through;
+}
+
+/* Developer Mode specific styles */
+.bardic-inspiration.dev-mode {
+  border: 2px dashed #ff6b6b;
+  background: rgba(255, 107, 107, 0.1);
+}
+
+.bardic-inspiration.dev-mode::after {
+  content: " [DEV]";
+  color: #ff6b6b;
+  font-weight: bold;
+  font-size: 0.8em;
+}
+
+/* Hello World Application Styles */
+.hello-world-content {
+  padding: 15px;
+  font-family: "Signika", sans-serif;
+}
+
+.hello-world-header {
+  text-align: center;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--bardic-inspiration-primary);
+  padding-bottom: 15px;
+}
+
+.hello-world-header h2 {
+  color: var(--bardic-inspiration-primary);
+  margin: 0 0 8px 0;
+  font-size: 1.4em;
+}
+
+.hello-world-header .subtitle {
+  color: #666;
+  font-style: italic;
+  margin: 0;
+  font-size: 0.9em;
+}
+
+.hello-world-info {
+  margin-bottom: 20px;
+}
+
+.info-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.info-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(139, 69, 19, 0.1);
+  border-radius: 4px;
+  border-left: 3px solid var(--bardic-inspiration-primary);
+}
+
+.info-item strong {
+  color: var(--bardic-inspiration-primary);
+}
+
+.status-active {
+  color: #28a745;
+  font-weight: bold;
+}
+
+.status-inactive {
+  color: #6c757d;
+  font-weight: bold;
+}
+
+.hello-world-actions {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 20px;
+}
+
+.hello-world-actions button {
+  background: var(--bardic-inspiration-success);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.hello-world-actions button:hover {
+  background: var(--bardic-inspiration-success-hover);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.hello-world-actions button:disabled {
+  background: #6c757d;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.hello-world-actions .close-button {
+  background: #dc3545;
+}
+
+.hello-world-actions .close-button:hover {
+  background: #c82333;
+}
+
+.test-results {
+  min-height: 100px;
+  padding: 15px;
+  background: rgba(0,0,0,0.05);
+  border-radius: 5px;
+  border: 1px dashed #ccc;
+}
+
+.test-placeholder {
+  text-align: center;
+  color: #666;
+}
+
+.test-placeholder i {
+  font-size: 1.5em;
+  margin-bottom: 10px;
+  display: block;
+  color: var(--bardic-inspiration-primary);
+}
+
+.test-success {
+  text-align: center;
+  color: #28a745;
+}
+
+.test-success i {
+  font-size: 2em;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.test-success ul {
+  text-align: left;
+  list-style: none;
+  padding: 0;
+  margin: 15px 0;
+}
+
+.test-success li {
+  padding: 4px 0;
+  font-size: 0.9em;
+}
+
+.test-error {
+  text-align: center;
+  color: #dc3545;
+}
+
+.test-error i {
+  font-size: 2em;
+  margin-bottom: 10px;
+  display: block;
+}
+
+.dev-mode-info {
+  margin-top: 20px;
+  padding: 15px;
+  background: rgba(255, 107, 107, 0.1);
+  border: 2px dashed #ff6b6b;
+  border-radius: 5px;
+}
+
+.dev-mode-info h4 {
+  color: #ff6b6b;
+  margin: 0 0 10px 0;
+  font-size: 1.1em;
+}
+
+.dev-mode-info p {
+  margin: 5px 0;
+  font-size: 0.9em;
+  color: #666;
+}

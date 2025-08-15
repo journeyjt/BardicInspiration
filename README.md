@@ -11,47 +11,88 @@ A Foundry VTT module.
 
 ### Development Environment
 
-1. Copy `.env.example` to `.env` and fill in your FoundryVTT credentials:
+This module uses **Vite** for modern bundling, **TypeScript** for type safety, and **Hot Module Replacement** for fast development.
+
+1. **Install Dependencies:**
+   ```bash
+   npm install
+   ```
+
+2. **Set up Environment:**
    ```bash
    cp .env.example .env
+   # Fill in your FoundryVTT credentials
    ```
 
-2. Start the development environment:
+3. **Start Development:**
    ```bash
-   npm run dev
+   npm run dev:vite        # Start FoundryVTT + Vite dev server with HMR
    ```
 
-3. Access FoundryVTT at `http://localhost:30000`
-
-4. Install the module through FoundryVTT's interface:
-   - Go to "Add-on Modules" → "Install Module"
-   - Use the manifest URL or browse for local modules
+4. **Access Development Environment:**
+   - **FoundryVTT:** `http://localhost:30000` (main application)
+   - **Vite Dev Server:** `http://localhost:30001` (with HMR proxy)
 
 ### Development Workflow
 
-#### Starting Development
+#### Modern Development (Recommended)
 ```bash
-npm run dev              # Start FoundryVTT container
+npm run dev:vite         # Start FoundryVTT + Vite with HMR
+```
+- **Hot Module Replacement:** Changes appear instantly without page refresh
+- **TypeScript compilation:** Real-time type checking and compilation
+- **CSS processing:** Modern CSS with auto-prefixing
+- **Source maps:** Debug with original source files
+
+#### Traditional Development
+```bash
+npm run dev              # Start FoundryVTT container only
+npm run build            # Build for testing
+```
+
+#### File Structure
+```
+src/
+├── main.ts              # Main module entry (TypeScript)
+├── lib/                 # Utility libraries
+│   └── lib-wrapper-utils.ts
+└── styles/
+    └── main.css         # Processed by Vite
+
+dist/                    # Built files (generated)
+├── main.js              # Compiled bundle
+└── main.css             # Processed styles
 ```
 
 #### Making Changes
-1. Edit your module files (scripts, styles, etc.)
-2. Reinstall/update the module through FoundryVTT's interface
-3. Refresh browser (F5) to see changes
+1. **TypeScript/JavaScript:** Edit files in `src/` - changes apply instantly with HMR
+2. **CSS:** Edit `src/styles/main.css` - styles update live
+3. **Module Config:** Edit `module.json` - restart container to see changes
 
-#### Other Commands
+#### Commands
 ```bash
-npm run dev:stop         # Stop the development environment
-npm run dev:logs         # View container logs
-npm run dev:restart      # Restart the container
+npm run dev:vite         # Development with HMR
+npm run vite:build       # Build for production
+npm run validate         # Validate module structure
+npm run build            # Validate + build + create zip
 ```
 
-### Development Notes
+### TypeScript Support
 
-- **Module Installation:** Install the module through FoundryVTT's built-in module manager
-- **File Changes:** After editing files, reinstall or update the module via the FoundryVTT interface
-- **Clean Environment:** Container data doesn't persist between restarts - install modules fresh each time
-- **Port Access:** FoundryVTT runs on `http://localhost:30000`
+- **FoundryVTT Types:** Full type definitions for FoundryVTT API
+- **Modern JavaScript:** ES2022 with full module support
+- **Type Safety:** Catch errors at compile-time
+- **IntelliSense:** Rich IDE support with autocompletion
+
+### Development Features
+
+- **🔥 Hot Module Replacement:** Instant updates without page refresh
+- **📝 TypeScript:** Full type safety and modern JavaScript features  
+- **🎨 Modern CSS:** CSS processing with Vite
+- **🔍 Source Maps:** Debug with original source files
+- **⚡ Fast Builds:** Optimized bundling with Vite
+- **🛠️ libWrapper Integration:** Type-safe monkey-patching utilities
+- **🧪 Developer Mode Support:** Enhanced debugging capabilities
 
 ### Recommended Development Modules
 
@@ -73,9 +114,53 @@ Install these modules in your development environment:
 └── README.md
 ```
 
-## Deployment
+## Release and Deployment
 
-Releases are automatically created via GitHub Actions when you publish a release on GitHub.
+### Enhanced Release Workflow
+
+This module uses an automated release system with comprehensive validation:
+
+#### Pre-Release Validation
+Before creating a release, validate your module locally:
+```bash
+npm run validate         # Validate module structure and manifest
+npm run build           # Validate and create module.zip
+```
+
+#### Creating a Release
+1. **Prepare Your Module**
+   - Ensure all changes are committed
+   - Update version in `module.json`
+   - Run `npm run validate` to check for issues
+
+2. **Create GitHub Release**
+   - Go to your GitHub repository
+   - Click "Releases" → "Create a new release"
+   - Tag version should match `module.json` version (e.g., `0.1.0`)
+   - Add release title and description
+   - Publish the release
+
+3. **Automatic Processing**
+   The GitHub Action will automatically:
+   - ✅ Validate module manifest and file structure
+   - ✅ Check version consistency between release tag and manifest
+   - ✅ Generate enhanced changelog from git commits
+   - ✅ Update manifest URLs for release
+   - ✅ Create properly structured module.zip
+   - ✅ Attach assets and update release notes
+
+#### Release Features
+- **Comprehensive Validation**: Checks manifest syntax, required fields, file existence
+- **Automatic Changelog**: Generated from git commits since last release
+- **Version Consistency**: Ensures release tag matches manifest version
+- **Enhanced Release Notes**: Includes installation instructions and compatibility info
+- **Proper Asset URLs**: Automatically updates manifest and download URLs
+
+#### Installation for Users
+Users can install your module using:
+```
+https://github.com/yourusername/BardicInspiration/releases/latest/download/module.json
+```
 
 ## License
 
