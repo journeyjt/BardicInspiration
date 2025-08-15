@@ -2,13 +2,21 @@ import { defineConfig } from 'vite';
 import { resolve } from 'path';
 
 export default defineConfig({
-  root: 'src/',
+  root: './',
   base: '/modules/bardic-inspiration/',
   publicDir: resolve(__dirname, 'public'),
   
   server: {
-    port: 30001,
+    port: 5000, // Fixed development port
+    host: '0.0.0.0', // Allow external connections
+    allowedHosts: ['host.docker.internal'], // Allow Docker host access
     open: false,
+    strictPort: true, // Fail if port is in use instead of auto-incrementing
+    headers: {
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      'Pragma': 'no-cache',
+      'Expires': '0'
+    },
     proxy: {
       '^(?!/modules/bardic-inspiration/).*': 'http://localhost:30000',
       '/socket.io': {

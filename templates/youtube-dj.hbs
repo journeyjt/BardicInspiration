@@ -1,0 +1,139 @@
+<div class="youtube-dj-content">
+  <header class="youtube-dj-header">
+    <h2>
+      <i class="fas fa-music"></i>
+      YouTube DJ - Synced Player
+    </h2>
+    <div class="dj-status">
+      {{#if isDJ}}
+        <span class="status-dj">
+          <i class="fas fa-microphone"></i> You are the DJ
+        </span>
+      {{else}}
+        <span class="status-listener">
+          <i class="fas fa-headphones"></i> Listening
+        </span>
+      {{/if}}
+    </div>
+  </header>
+
+  <!-- Autoplay Consent Section -->
+  {{#unless hasAutoplayConsent}}
+  <div class="autoplay-consent">
+    <div class="consent-info">
+      <i class="fas fa-info-circle"></i>
+      <p>To enable synchronized playback, click the button below to grant autoplay permission.</p>
+    </div>
+    <button type="button" class="enable-autoplay-btn">
+      <i class="fas fa-play"></i>
+      Enable Synchronized Playback
+    </button>
+  </div>
+  {{/unless}}
+
+  <!-- YouTube Player Container -->
+  <div class="player-section">
+    <div class="player-info">
+      <h3>{{currentVideoTitle}}</h3>
+      <div class="player-status-container">
+        Status: <span class="player-status">{{playerState}}</span>
+      </div>
+    </div>
+    
+    <div id="youtube-player-container">
+      <!-- YouTube player will be inserted here -->
+    </div>
+  </div>
+
+  <!-- URL Input Section -->
+  <div class="url-input-section">
+    <div class="input-group">
+      <input 
+        type="text" 
+        class="youtube-url-input" 
+        placeholder="Paste YouTube URL or video ID..."
+        {{#unless isPlayerReady}}disabled{{/unless}}
+      >
+      <button 
+        type="button" 
+        class="load-video-btn"
+        {{#unless isPlayerReady}}disabled{{/unless}}
+      >
+        <i class="fas fa-plus"></i>
+        Load Video
+      </button>
+    </div>
+  </div>
+
+  <!-- Transport Controls -->
+  <div class="transport-controls">
+    {{#if isDJ}}
+      <button 
+        type="button" 
+        class="play-btn transport-btn"
+        {{#unless hasAutoplayConsent}}disabled{{/unless}}
+      >
+        <i class="fas fa-play"></i>
+        Play
+      </button>
+      <button 
+        type="button" 
+        class="pause-btn transport-btn"
+      >
+        <i class="fas fa-pause"></i>
+        Pause
+      </button>
+    {{else}}
+      <div class="listener-info">
+        <i class="fas fa-info-circle"></i>
+        <p>Playback is controlled by the DJ</p>
+      </div>
+    {{/if}}
+  </div>
+
+  <!-- Player State Info -->
+  <div class="player-info-section">
+    <div class="info-grid">
+      <div class="info-item">
+        <strong>Player Ready:</strong>
+        <span class="{{#if isPlayerReady}}status-active{{else}}status-inactive{{/if}}">
+          {{#if isPlayerReady}}
+            <i class="fas fa-check"></i> Ready
+          {{else}}
+            <i class="fas fa-clock"></i> Initializing...
+          {{/if}}
+        </span>
+      </div>
+      
+      <div class="info-item">
+        <strong>Autoplay:</strong>
+        <span class="{{#if hasAutoplayConsent}}status-active{{else}}status-inactive{{/if}}">
+          {{#if hasAutoplayConsent}}
+            <i class="fas fa-check"></i> Enabled
+          {{else}}
+            <i class="fas fa-times"></i> Disabled
+          {{/if}}
+        </span>
+      </div>
+      
+      <div class="info-item">
+        <strong>Mode:</strong>
+        <span class="status-info">
+          <i class="fas fa-user"></i> Single Client (MVP)
+        </span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Actions -->
+  <div class="youtube-dj-actions">
+    <button type="button" class="recreate-player-btn">
+      <i class="fas fa-redo"></i>
+      Recreate Player
+    </button>
+    <button type="button" class="close-btn">
+      <i class="fas fa-times"></i>
+      Close
+    </button>
+  </div>
+</div>

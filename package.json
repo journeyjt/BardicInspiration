@@ -1,6 +1,6 @@
 {
   "name": "bardic-inspiration",
-  "version": "0.1.9",
+  "version": "0.5.1",
   "description": "A Foundry VTT module",
   "type": "module",
   "scripts": {
@@ -8,13 +8,17 @@
     "dev:stop": "docker compose down",
     "dev:logs": "docker logs -f bardic-inspiration-dev",
     "dev:restart": "docker compose restart",
+    "dev:clean": "powershell \"(netstat -ano | findstr :5000 | ForEach-Object { $_.Split(' ')[-1] } | Where-Object { $_ -match '^\\d+$' } | ForEach-Object { taskkill /F /PID $_ 2>$null }) ; (netstat -ano | findstr ':517' | ForEach-Object { $_.Split(' ')[-1] } | Where-Object { $_ -match '^\\d+$' } | ForEach-Object { taskkill /F /PID $_ 2>$null })\" || echo \"Ports cleaned\"",
     "dev:vite": "npm run dev && npm run vite:dev",
     "vite:dev": "vite",
     "vite:build": "vite build",
     "vite:preview": "vite preview",
     "validate": "node scripts/validate-module.cjs",
+    "sync": "node scripts/sync-dev.js",
+    "dev:build": "npm run vite:build && npm run sync",
+    "dev:serve": "npm run dev:clean && npm run vite:build && npm run build:zip && npm run vite:dev",
     "build": "npm run validate && npm run vite:build && npm run build:zip",
-    "build:zip": "powershell -Command \"Compress-Archive -Path module.json,dist,styles,templates,languages,LICENSE,README.md -DestinationPath module.zip -Force\""
+    "build:zip": "powershell -Command \"Compress-Archive -Path module.json,dist,templates,languages,LICENSE,README.md -DestinationPath module.zip -Force\""
   },
   "keywords": ["foundryvtt", "module"],
   "author": "Your Name",

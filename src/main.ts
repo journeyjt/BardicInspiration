@@ -4,22 +4,22 @@
  */
 
 import { LibWrapperUtils } from './lib/lib-wrapper-utils.js';
-import { HelloWorldApp } from './apps/HelloWorldApp.js';
+import { YouTubeDJApp } from './apps/HelloWorldApp.js';
 import './styles/main.css';
 
 const MODULE_ID = 'bardic-inspiration';
 
 interface ModuleAPI {
   ID: string;
-  openHelloWorld(): void;
+  openYoutubeDJ(): void;
   somePublicMethod(): void;
 }
 
 class BardicInspirationAPI implements ModuleAPI {
   static readonly ID = MODULE_ID;
 
-  static openHelloWorld(): void {
-    HelloWorldApp.open();
+  static openYoutubeDJ(): void {
+    YouTubeDJApp.open();
   }
 
   static somePublicMethod(): void {
@@ -66,13 +66,13 @@ Hooks.on('getSceneControlButtons', (controls: any) => {
     console.log(`${MODULE_ID} | Adding tool to tokens control group`);
     
     // Add our tool as a property of the tools object
-    controls.tokens.tools['bardic-inspiration-hello'] = {
-      name: 'bardic-inspiration-hello',
-      title: 'Bardic Inspiration: Hello World',
+    controls.tokens.tools['bardic-inspiration-youtube-dj'] = {
+      name: 'bardic-inspiration-youtube-dj',
+      title: 'YouTube DJ - Synced Player',
       icon: 'fas fa-music',
       onChange: () => {
-        console.log(`${MODULE_ID} | Hello World tool clicked!`);
-        BardicInspirationAPI.openHelloWorld();
+        console.log(`${MODULE_ID} | YouTube DJ tool clicked!`);
+        BardicInspirationAPI.openYoutubeDJ();
       },
       button: true
     };

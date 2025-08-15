@@ -3,6 +3,11 @@
 
 # FoundryVTT data directory
 foundry-data/
+foundry-data;C/
+
+# Temporary module files
+module-*.json
+!module.json
 
 # Node modules
 node_modules/
@@ -37,3 +42,9 @@ temp/
 
 # Vite
 .vite/
+
+# SSL certificates (development only)
+ssl/
+*.crt
+*.key
+*.pem

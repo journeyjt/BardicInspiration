@@ -15,9 +15,11 @@ services:
       - FOUNDRY_HOSTNAME=localhost
       - CONTAINER_PRESERVE_CONFIG=false
       - CONTAINER_PRESERVE_OWNER=false
+    # No volume mounts - let FoundryVTT use container filesystem
     networks:
       - foundry-dev
 
 networks:
   foundry-dev:
     driver: bridge
+

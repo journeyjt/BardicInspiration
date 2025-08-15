@@ -2,7 +2,7 @@
   "id": "bardic-inspiration",
   "title": "Bardic Inspiration",
   "description": "A Foundry VTT module",
-  "version": "0.1.9",
+  "version": "0.5.1",
   "compatibility": {
     "minimum": "12",
     "verified": "12.331"
@@ -17,7 +17,7 @@
     "dist/main.js"
   ],
   "styles": [
-    "styles/main.css"
+    "dist/style.css"
   ],
   "languages": [
     {
@@ -42,9 +42,9 @@
       }
     ]
   },
-  "url": "http://host.docker.internal:8080",
-  "manifest": "http://host.docker.internal:8080/module.json",
-  "download": "http://host.docker.internal:8080/module.zip",
+  "url": "http://host.docker.internal:5000/modules/bardic-inspiration",
+  "manifest": "http://host.docker.internal:5000/modules/bardic-inspiration/module.json",
+  "download": "http://host.docker.internal:5000/modules/bardic-inspiration/module.zip",
   "license": "LICENSE",
   "readme": "README.md",
   "bugs": "https://github.com/yourusername/BardicInspiration/issues",
