@@ -3,6 +3,8 @@
  * MVP-U6: DJ Management & Permissions
  */
 
+import { logger } from '../lib/logger.js';
+
 interface YouTubeDJData {
   currentVideoId: string | null;
   currentVideoTitle: string;
@@ -66,6 +68,8 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private isRecreating: boolean = false;
   private containerObserver: MutationObserver | null = null;
   private seekUpdateInterval: number | null = null;
+  private pendingOperations: Array<() => void> = [];
+  private playerInitializing: boolean = false;
   
   // Socket communication properties
   private static readonly SOCKET_NAME = 'module.bardic-inspiration';
@@ -118,7 +122,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     return foundry.utils.mergeObject(super.defaultOptions, {
       id: 'bardic-inspiration-youtube-dj',
       window: {
-        title: 'YouTube DJ - Synced Player',
+        title: 'Bardic Inspiration - YouTube DJ',
         minimizable: true,
         resizable: true
       },
@@ -130,6 +134,13 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     });
   }
 
+  get title() {
+    if (this.currentVideoTitle && this.currentVideoTitle !== 'No video loaded') {
+      return `Bardic Inspiration - ${this.currentVideoTitle}`;
+    }
+    return 'Bardic Inspiration - YouTube DJ';
+  }
+
   static get PARTS() {
     return {
       main: {
@@ -137,6 +148,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       }
     };
   }
+
 
   /** @override */
   async _prepareContext(options: any): Promise<YouTubeDJData> {
@@ -166,7 +178,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     };
     
     // Debug logging
-    console.log('🎵 YouTube DJ | Template context:', {
+    logger.debug('🎵 YouTube DJ | Template context:', {
       hasJoinedSession: context.hasJoinedSession,
       isDJ: context.isDJ,
       queueLength: context.queue.length,
@@ -180,11 +192,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   async render(options: any = {}): Promise<this> {
     // Prevent unnecessary re-renders if player is working, unless forced
     if (this.youtubePlayer && this.playerReady && !options.force) {
-      console.log('🎵 YouTube DJ | Skipping render to preserve player');
+      logger.debug('🎵 YouTube DJ | Skipping render to preserve player');
       return this;
     }
     
-    console.log('🎵 YouTube DJ | Allowing render', { 
+    logger.debug('🎵 YouTube DJ | Allowing render', { 
       hasPlayer: !!this.youtubePlayer, 
       isReady: this.playerReady, 
       force: options.force 
@@ -197,14 +209,14 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   _onRender(context: YouTubeDJData, options: any): void {
     const html = this.element;
     
-    console.log('🎵 YouTube DJ | _onRender called, checking for existing player...');
+    logger.debug('🎵 YouTube DJ | _onRender called, checking for existing player...');
     
     // Check if we have an existing player that needs protection
     const existingContainer = html.querySelector('#youtube-player-container');
     let existingIframe = existingContainer?.querySelector('#youtube-player') as HTMLIFrameElement;
     
     if (existingIframe && this.youtubePlayer) {
-      console.log('🎵 YouTube DJ | Found existing iframe, protecting from re-render');
+      logger.debug('🎵 YouTube DJ | Found existing iframe, protecting from re-render');
       
       // Detach the iframe temporarily to prevent it from being destroyed
       const parent = existingIframe.parentNode;
@@ -220,9 +232,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           // Clear any placeholder content and restore our iframe
           newContainer.innerHTML = '';
           newContainer.appendChild(savedIframe);
-          console.log('🎵 YouTube DJ | Successfully restored existing iframe after re-render');
+          logger.debug('🎵 YouTube DJ | Successfully restored existing iframe after re-render');
         } else {
-          console.error('🎵 YouTube DJ | Container disappeared during re-render!');
+          logger.error('🎵 YouTube DJ | Container disappeared during re-render!');
         }
       }, 0);
     }
@@ -277,28 +289,77 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   }
 
   /**
-   * Initialize YouTube Player using proper API (now that render issues are fixed)
+   * Ensure YouTube player is initialized (synchronous with callback queue)
+   */
+  private _ensurePlayerInitialized(callback?: () => void): void {
+    if (this.playerReady && this.youtubePlayer) {
+      // Player is ready, execute callback immediately
+      if (callback) callback();
+      return;
+    }
+
+    if (!this.hasJoinedSession) {
+      ui.notifications?.warn('Please join the session first');
+      return;
+    }
+
+    // Queue the callback for when player is ready
+    if (callback) {
+      this.pendingOperations.push(callback);
+    }
+
+    // If player initialization is already in progress, don't start another
+    if (this.playerInitializing) {
+      return;
+    }
+
+    logger.debug('🎵 YouTube DJ | Lazy loading YouTube player...');
+    this.playerInitializing = true;
+    this._initializeYouTubePlayer();
+  }
+
+  /**
+   * Execute all pending operations when player becomes ready
+   */
+  private _executePendingOperations(): void {
+    if (this.pendingOperations.length > 0) {
+      logger.debug(`🎵 YouTube DJ | Executing ${this.pendingOperations.length} pending operations`);
+      const operations = [...this.pendingOperations];
+      this.pendingOperations = [];
+      
+      operations.forEach(operation => {
+        try {
+          operation();
+        } catch (error) {
+          logger.error('🎵 YouTube DJ | Error executing pending operation:', error);
+        }
+      });
+    }
+  }
+
+  /**
+   * Initialize YouTube Player using IFrame API
    */
   private _initializeYouTubePlayer(): void {
     // Load YouTube IFrame Player API if not already loaded
     if (typeof YT === 'undefined' || typeof YT.Player === 'undefined') {
-      console.log('🎵 YouTube DJ | Loading YouTube API for full programmatic control');
+      logger.debug('🎵 YouTube DJ | Loading YouTube API for full programmatic control');
       this._loadYouTubeAPI();
       return;
     }
 
-    console.log('🎵 YouTube DJ | Using YouTube API with render protection');
+    logger.debug('🎵 YouTube DJ | Using YouTube API with render protection');
     
     let playerContainer = this.element.querySelector('#youtube-player-container');
     if (!playerContainer) {
-      console.warn('YouTube player container not found, creating dynamically...');
+      logger.warn('YouTube player container not found, creating dynamically...');
       
       // Create player section dynamically if it doesn't exist
       const playerSection = document.createElement('div');
       playerSection.className = 'player-section';
       playerSection.innerHTML = `
         <div class="player-info">
-          <h3>${this.currentVideoTitle || 'No video loaded'}</h3>
+          <h3>No video loaded</h3>
           <div class="player-status-container">
             Status: <span class="player-status">${this.playerState}</span>
           </div>
@@ -321,7 +382,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       playerContainer = this.element.querySelector('#youtube-player-container');
       if (!playerContainer) {
-        console.error('Failed to create YouTube player container');
+        logger.error('Failed to create YouTube player container');
         return;
       }
     }
@@ -331,7 +392,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       try {
         this.youtubePlayer.destroy();
       } catch (e) {
-        console.log('🎵 YouTube DJ | Old player cleanup (expected)');
+        logger.debug('🎵 YouTube DJ | Old player cleanup (expected)');
       }
       this.youtubePlayer = null;
     }
@@ -343,19 +404,19 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     playerDiv.style.cssText = 'width: 560px; height: 315px; max-width: 100%; background: #333; border: 1px solid #666;';
     playerContainer.appendChild(playerDiv);
     
-    console.log('🎵 YouTube DJ | Player div created for YouTube API');
+    logger.debug('🎵 YouTube DJ | Player div created for YouTube API');
 
     // Wait a moment for DOM to settle before creating player
     setTimeout(() => {
       const finalPlayerDiv = this.element.querySelector('#youtube-player');
       if (!finalPlayerDiv) {
-        console.error('🎵 YouTube DJ | Player div disappeared before initialization');
+        logger.error('🎵 YouTube DJ | Player div disappeared before initialization');
         return;
       }
 
       // Initialize the YouTube player with proper API
       // For development, let YouTube handle protocol automatically
-      console.log(`🎵 YouTube DJ | Creating YouTube API player - Origin: ${window.location.origin}`);
+      logger.debug(`🎵 YouTube DJ | Creating YouTube API player - Origin: ${window.location.origin}`);
       
       // Use current video from queue based on currentIndex, otherwise no default video
       const currentItem = this.queueState.items.length > 0 && this.queueState.currentIndex >= 0 && this.queueState.currentIndex < this.queueState.items.length
@@ -364,12 +425,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       const initialVideoId = currentItem?.videoId;
       
-      // Update current video title if we have a current item
+      // Initialize with current video if available
       if (currentItem) {
-        this.currentVideoTitle = currentItem.title || currentItem.videoId;
-        console.log(`🎵 YouTube DJ | Initializing with current video: ${this.currentVideoTitle} (index: ${this.queueState.currentIndex})`);
-        // Update window title after a short delay to ensure DOM is ready
-        setTimeout(() => this._updateWindowTitle(), 500);
+        logger.debug(`🎵 YouTube DJ | Initializing with current video: ${currentItem.title || currentItem.videoId} (index: ${this.queueState.currentIndex})`);
       }
       
       this.youtubePlayer = new YT.Player('youtube-player', {
@@ -393,7 +451,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         }
       });
 
-      console.log('🎵 YouTube DJ | YouTube API player initialized');
+      logger.debug('🎵 YouTube DJ | YouTube API player initialized');
     }, 100);
   }
   
@@ -434,26 +492,26 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     script.src = apiUrl;
     script.async = true;
 
-    console.log(`🎵 YouTube DJ | Loading YouTube API from: ${apiUrl} (${this.isDevelopment ? 'DEV' : 'PROD'} mode)`);
+    logger.debug(`🎵 YouTube DJ | Loading YouTube API from: ${apiUrl} (${this.isDevelopment ? 'DEV' : 'PROD'} mode)`);
 
     // Set up the callback for when API loads
     (window as any).onYouTubeIframeAPIReady = () => {
-      console.log('🎵 YouTube DJ | YouTube API loaded');
+      logger.debug('🎵 YouTube DJ | YouTube API loaded');
       this._initializeYouTubePlayer();
       (window as any).youtubeAPILoading = false;
     };
 
     script.onerror = () => {
-      console.error(`🎵 YouTube DJ | Failed to load YouTube API from ${apiUrl}`);
+      logger.error(`🎵 YouTube DJ | Failed to load YouTube API from ${apiUrl}`);
       // In development, if HTTP fails, try HTTPS fallback
       if (this.isDevelopment && script.src.startsWith('http://')) {
-        console.warn('🎵 YouTube DJ | HTTP API failed in dev mode, falling back to HTTPS');
+        logger.warn('🎵 YouTube DJ | HTTP API failed in dev mode, falling back to HTTPS');
         const httpsScript = document.createElement('script');
         httpsScript.src = 'https://www.youtube.com/iframe_api';
         httpsScript.async = true;
         httpsScript.onload = (window as any).onYouTubeIframeAPIReady;
         httpsScript.onerror = () => {
-          console.error('🎵 YouTube DJ | Both HTTP and HTTPS API loading failed');
+          logger.error('🎵 YouTube DJ | Both HTTP and HTTPS API loading failed');
           ui.notifications?.error('Failed to load YouTube API. Check your internet connection.');
           (window as any).youtubeAPILoading = false;
         };
@@ -471,27 +529,31 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * YouTube player ready callback
    */
   private _onPlayerReady(event: any): void {
-    console.log('🎵 YouTube DJ | YouTube API player ready');
-    console.log('🎵 YouTube DJ | Player element exists:', !!this.element.querySelector('#youtube-player'));
+    logger.debug('🎵 YouTube DJ | YouTube API player ready');
+    logger.debug('🎵 YouTube DJ | Player element exists:', !!this.element.querySelector('#youtube-player'));
     
     // Check if iframe was created this time
     const iframe = this.element.querySelector('#youtube-player iframe');
-    console.log('🎵 YouTube DJ | Player iframe exists:', !!iframe);
+    logger.debug('🎵 YouTube DJ | Player iframe exists:', !!iframe);
     
     if (iframe) {
-      console.log('🎵 YouTube DJ | SUCCESS! YouTube API created persistent iframe');
+      logger.debug('🎵 YouTube DJ | SUCCESS! YouTube API created persistent iframe');
     } else {
-      console.warn('🎵 YouTube DJ | YouTube API ready but no iframe detected');
+      logger.warn('🎵 YouTube DJ | YouTube API ready but no iframe detected');
     }
     
     this.playerReady = true;
-    console.log('🎵 YouTube DJ | Player marked as ready with full API control');
+    this.playerInitializing = false;
+    logger.debug('🎵 YouTube DJ | Player marked as ready with full API control');
     
     // Set default volume to 20%
     if (this.youtubePlayer) {
       this.youtubePlayer.setVolume(20);
-      console.log('🎵 YouTube DJ | Set default volume to 20%');
+      logger.debug('🎵 YouTube DJ | Set default volume to 20%');
     }
+    
+    // Execute any pending operations now that player is ready
+    this._executePendingOperations();
     
     // Update UI elements without full re-render to preserve player
     this._updatePlayerStatusUI();
@@ -518,17 +580,17 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _debugIframeLifecycle(): void {
     const playerDiv = this.element.querySelector('#youtube-player');
     if (!playerDiv) {
-      console.error('🎵 YouTube DJ | No player div found during iframe debug');
+      logger.error('🎵 YouTube DJ | No player div found during iframe debug');
       return;
     }
     
-    console.log('🎵 YouTube DJ | Starting iframe lifecycle debugging...');
+    logger.debug('🎵 YouTube DJ | Starting iframe lifecycle debugging...');
     
     // Check current state
     const currentIframes = playerDiv.querySelectorAll('iframe');
-    console.log(`🎵 YouTube DJ | Current iframes in player div: ${currentIframes.length}`);
+    logger.debug(`🎵 YouTube DJ | Current iframes in player div: ${currentIframes.length}`);
     currentIframes.forEach((iframe, index) => {
-      console.log(`🎵 YouTube DJ | Iframe ${index}:`, {
+      logger.debug(`🎵 YouTube DJ | Iframe ${index}:`, {
         src: iframe.src,
         width: iframe.width,
         height: iframe.height,
@@ -546,12 +608,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       const newIframes = playerDiv.querySelectorAll('iframe');
       
       if (newIframes.length !== currentIframes.length) {
-        console.log(`🎵 YouTube DJ | [${checkCount * 100}ms] Iframe count changed: ${currentIframes.length} -> ${newIframes.length}`);
+        logger.debug(`🎵 YouTube DJ | [${checkCount * 100}ms] Iframe count changed: ${currentIframes.length} -> ${newIframes.length}`);
         
         if (newIframes.length === 0) {
-          console.error('🎵 YouTube DJ | ALL IFRAMES DISAPPEARED!');
-          console.error('🎵 YouTube DJ | Player div content:', playerDiv.innerHTML);
-          console.trace('🎵 YouTube DJ | Iframe disappearance stack trace');
+          logger.error('🎵 YouTube DJ | ALL IFRAMES DISAPPEARED!');
+          logger.error('🎵 YouTube DJ | Player div content:', playerDiv.innerHTML);
+          logger.debug('🎵 YouTube DJ | Iframe disappearance stack trace');
         }
       }
       
@@ -560,7 +622,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         const rect = iframe.getBoundingClientRect();
         const isVisible = rect.width > 0 && rect.height > 0 && rect.top >= 0;
         if (!isVisible && checkCount % 10 === 0) { // Log every second
-          console.warn(`🎵 YouTube DJ | [${checkCount * 100}ms] Iframe ${index} not visible:`, {
+          logger.warn(`🎵 YouTube DJ | [${checkCount * 100}ms] Iframe ${index} not visible:`, {
             width: rect.width,
             height: rect.height,
             top: rect.top,
@@ -571,7 +633,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       });
       
       if (checkCount >= maxChecks) {
-        console.log('🎵 YouTube DJ | Iframe lifecycle monitoring complete');
+        logger.debug('🎵 YouTube DJ | Iframe lifecycle monitoring complete');
         clearInterval(monitorInterval);
       }
     }, 100);
@@ -596,9 +658,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
             if (node.nodeType === Node.ELEMENT_NODE) {
               const element = node as Element;
               if (element.id === 'youtube-player' || element.querySelector('#youtube-player')) {
-                console.error('🎵 YouTube DJ | YouTube player was REMOVED from DOM!');
-                console.error('🎵 YouTube DJ | Removed by:', mutation.target);
-                console.trace('🎵 YouTube DJ | Removal stack trace');
+                logger.error('🎵 YouTube DJ | YouTube player was REMOVED from DOM!');
+                logger.error('🎵 YouTube DJ | Removed by:', mutation.target);
+                logger.debug('🎵 YouTube DJ | Removal stack trace');
                 
                 // Immediately restore
                 this._emergencyRestorePlayer(container);
@@ -611,7 +673,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           const hasIframe = container.querySelector('#youtube-player iframe');
           
           if (!hasPlayer && this.youtubePlayer && this.playerReady) {
-            console.warn('🎵 YouTube DJ | Player disappeared, emergency restore...');
+            logger.warn('🎵 YouTube DJ | Player disappeared, emergency restore...');
             this._emergencyRestorePlayer(container);
           }
         }
@@ -626,7 +688,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       attributeOldValue: true
     });
     
-    console.log('🎵 YouTube DJ | Aggressive container protection enabled');
+    logger.debug('🎵 YouTube DJ | Aggressive container protection enabled');
   }
   
   /**
@@ -641,10 +703,10 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         set: function(value: string) {
           // Only allow setting if it contains our player or is empty initialization
           if (value.includes('youtube-player') || value.includes('<!-- YouTube player will be inserted here -->')) {
-            console.log('🎵 YouTube DJ | Allowing innerHTML change:', value.substring(0, 50) + '...');
+            logger.debug('🎵 YouTube DJ | Allowing innerHTML change:', value.substring(0, 50) + '...');
             originalInnerHTML.set?.call(this, value);
           } else {
-            console.warn('🎵 YouTube DJ | BLOCKED innerHTML change that would remove player:', value.substring(0, 50) + '...');
+            logger.warn('🎵 YouTube DJ | BLOCKED innerHTML change that would remove player:', value.substring(0, 50) + '...');
           }
         }
       });
@@ -656,15 +718,15 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       if (child.nodeType === Node.ELEMENT_NODE) {
         const element = child as Element;
         if (element.id === 'youtube-player' || element.querySelector('#youtube-player')) {
-          console.error('🎵 YouTube DJ | BLOCKED attempt to remove YouTube player!');
-          console.trace('🎵 YouTube DJ | Removal attempt stack trace');
+          logger.error('🎵 YouTube DJ | BLOCKED attempt to remove YouTube player!');
+          logger.debug('🎵 YouTube DJ | Removal attempt stack trace');
           return child; // Pretend we removed it but don't actually do it
         }
       }
       return originalRemoveChild.call(this, child);
     };
     
-    console.log('🎵 YouTube DJ | Container DOM locked against modifications');
+    logger.debug('🎵 YouTube DJ | Container DOM locked against modifications');
   }
   
   /**
@@ -673,7 +735,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _emergencyRestorePlayer(container: Element): void {
     if (this.isRecreating) return;
     
-    console.log('🎵 YouTube DJ | Emergency restore in progress...');
+    logger.debug('🎵 YouTube DJ | Emergency restore in progress...');
     
     // Find or create player div
     let playerDiv = container.querySelector('#youtube-player');
@@ -682,16 +744,16 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       playerDiv.id = 'youtube-player';
       playerDiv.style.cssText = 'width: 560px; height: 315px; max-width: 100%; position: relative; z-index: 1; background: black; border: 2px solid red;';
       container.appendChild(playerDiv);
-      console.log('🎵 YouTube DJ | Created emergency player div');
+      logger.debug('🎵 YouTube DJ | Created emergency player div');
     }
     
     // Try to restore YouTube functionality
     if (this.youtubePlayer) {
       try {
         const state = this.youtubePlayer.getPlayerState();
-        console.log(`🎵 YouTube DJ | Player object still exists, state: ${state}`);
+        logger.debug(`🎵 YouTube DJ | Player object still exists, state: ${state}`);
       } catch (error) {
-        console.log('🎵 YouTube DJ | Player object lost, flagging for recreation');
+        logger.debug('🎵 YouTube DJ | Player object lost, flagging for recreation');
         this.playerReady = false;
         this.youtubePlayer = null;
       }
@@ -708,7 +770,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Create player div if missing
     let playerDiv = container.querySelector('#youtube-player');
     if (!playerDiv && this.youtubePlayer) {
-      console.log('🎵 YouTube DJ | Recreating player div after external removal');
+      logger.debug('🎵 YouTube DJ | Recreating player div after external removal');
       playerDiv = document.createElement('div');
       playerDiv.id = 'youtube-player';
       playerDiv.style.cssText = 'width: 560px; height: 315px; max-width: 100%; position: relative; z-index: 1;';
@@ -717,9 +779,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       // The YouTube player object might still be valid, so we may not need to recreate it
       try {
         const state = this.youtubePlayer.getPlayerState();
-        console.log(`🎵 YouTube DJ | Existing player still functional, state: ${state}`);
+        logger.debug(`🎵 YouTube DJ | Existing player still functional, state: ${state}`);
       } catch (error) {
-        console.log('🎵 YouTube DJ | Player object lost, will need recreation');
+        logger.debug('🎵 YouTube DJ | Player object lost, will need recreation');
         this._recreatePlayer();
       }
     }
@@ -731,7 +793,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _startPlayerMonitoring(): void {
     // Add flag to prevent recreation loops
     if (this.isRecreating) {
-      console.log('🎵 YouTube DJ | Already recreating, skipping monitor');
+      logger.debug('🎵 YouTube DJ | Already recreating, skipping monitor');
       return;
     }
     
@@ -744,10 +806,10 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       if (!playerElement) {
         consecutiveFailures++;
-        console.warn(`🎵 YouTube DJ | Player element missing (${consecutiveFailures}/${maxFailures})`);
+        logger.warn(`🎵 YouTube DJ | Player element missing (${consecutiveFailures}/${maxFailures})`);
         
         if (consecutiveFailures >= maxFailures) {
-          console.error('🎵 YouTube DJ | Player element disappeared persistently!');
+          logger.error('🎵 YouTube DJ | Player element disappeared persistently!');
           clearInterval(monitor);
           // Only recreate if we're not already recreating
           if (!this.isRecreating) {
@@ -769,11 +831,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    */
   private _recreatePlayer(): void {
     if (this.isRecreating) {
-      console.log('🎵 YouTube DJ | Already recreating, ignoring duplicate request');
+      logger.debug('🎵 YouTube DJ | Already recreating, ignoring duplicate request');
       return;
     }
     
-    console.log('🎵 YouTube DJ | Attempting to recreate player...');
+    logger.debug('🎵 YouTube DJ | Attempting to recreate player...');
     this.isRecreating = true;
     this.playerReady = false;
     this.youtubePlayer = null;
@@ -800,18 +862,18 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _verifyPlayerAttachment(): boolean {
     try {
       if (!this.youtubePlayer) {
-        console.warn('🎵 YouTube DJ | No player object');
+        logger.warn('🎵 YouTube DJ | No player object');
         return false;
       }
       
       // Primary check: can we call the YouTube API?
       const state = this.youtubePlayer.getPlayerState();
-      console.log(`🎵 YouTube DJ | Player API working, state: ${state}`);
+      logger.debug(`🎵 YouTube DJ | Player API working, state: ${state}`);
       
       // If API works, player is functional - ignore DOM warnings
       return true;
     } catch (error) {
-      console.warn('🎵 YouTube DJ | Player API failed:', error);
+      logger.warn('🎵 YouTube DJ | Player API failed:', error);
       return false;
     }
   }
@@ -822,11 +884,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _onPlayerStateChange(event: any): void {
     const states = ['ended', 'playing', 'paused', 'buffering', 'cued'];
     const stateName = states[event.data + 1] || 'unknown';
-    console.log(`🎵 YouTube DJ | Player state: ${stateName}`);
+    logger.debug(`🎵 YouTube DJ | Player state: ${stateName}`);
     
     // MVP-U4: Auto-advance queue when video ends
     if (event.data === 0 && this.isDJ) { // 0 = ended
-      console.log('🎵 YouTube DJ | Video ended, checking for auto-advance...');
+      logger.debug('🎵 YouTube DJ | Video ended, checking for auto-advance...');
       setTimeout(() => {
         this._autoAdvanceQueue();
       }, 1000); // Small delay to ensure state is stable
@@ -847,10 +909,10 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Check if there's a next video in the queue
     const nextIndex = this.queueState.currentIndex + 1;
     if (nextIndex < this.queueState.items.length) {
-      console.log('🎵 YouTube DJ | Auto-advancing to next video in queue');
+      logger.debug('🎵 YouTube DJ | Auto-advancing to next video in queue');
       this._playNextInQueue();
     } else {
-      console.log('🎵 YouTube DJ | Reached end of queue, no auto-advance');
+      logger.debug('🎵 YouTube DJ | Reached end of queue, no auto-advance');
       ui.notifications?.info('Queue finished - add more videos or manually restart');
     }
   }
@@ -859,7 +921,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * YouTube player error callback
    */
   private _onPlayerError(event: any): void {
-    console.error('🎵 YouTube DJ | Player error event:', event);
+    logger.error('🎵 YouTube DJ | Player error event:', event);
     
     // Get current video ID if available
     let currentVideoId = null;
@@ -921,7 +983,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       return null;
     } catch (error) {
-      console.error('🎵 YouTube DJ | Error extracting video ID:', error);
+      logger.error('🎵 YouTube DJ | Error extracting video ID:', error);
       return null;
     }
   }
@@ -951,23 +1013,21 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       return;
     }
 
-    if (!this.playerReady || !this.youtubePlayer) {
-      ui.notifications?.error('YouTube player not ready');
-      return;
-    }
+    // Ensure player is initialized before loading video
+    this._ensurePlayerInitialized(() => {
+      // Verify player is actually ready before loading
+      if (!this._verifyPlayerAttachment()) {
+        ui.notifications?.error('YouTube player not properly attached. Please wait and try again.');
+        return;
+      }
 
-    // Verify player is actually ready before loading
-    if (!this._verifyPlayerAttachment()) {
-      ui.notifications?.error('YouTube player not properly attached. Please wait and try again.');
-      return;
-    }
-
-    console.log(`🎵 YouTube DJ | Loading video: ${videoId}`);
-    
-    // Add a small delay before the API call to let any pending operations finish
-    setTimeout(() => {
-      this._attemptVideoLoad(videoId, input, 0);
-    }, 100);
+      logger.debug(`🎵 YouTube DJ | Loading video: ${videoId}`);
+      
+      // Add a small delay before the API call to let any pending operations finish
+      setTimeout(() => {
+        this._attemptVideoLoad(videoId, input, 0);
+      }, 100);
+    });
   }
   
   /**
@@ -980,7 +1040,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       // Check if player is ready
       if (!this.youtubePlayer || !this.playerReady) {
         if (retryCount < maxRetries) {
-          console.log(`🎵 YouTube DJ | Player not ready, retry ${retryCount + 1}/${maxRetries}`);
+          logger.debug(`🎵 YouTube DJ | Player not ready, retry ${retryCount + 1}/${maxRetries}`);
           setTimeout(() => {
             this._attemptVideoLoad(videoId, input, retryCount + 1);
           }, 1000);
@@ -995,7 +1055,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this.youtubePlayer.loadVideoById(videoId);
       input.value = ''; // Clear input
       ui.notifications?.info(`Loading video: ${videoId}`);
-      console.log(`🎵 YouTube DJ | Successfully loaded video via API: ${videoId}`);
+      logger.debug(`🎵 YouTube DJ | Successfully loaded video via API: ${videoId}`);
       
       // Update title after a short delay to let YouTube load
       setTimeout(() => {
@@ -1004,7 +1064,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       // Broadcast LOAD message to sync with other clients
       if (this.isDJ) {
-        console.log(`🎵 YouTube DJ | Broadcasting LOAD message to sync video: ${videoId}`);
+        logger.debug(`🎵 YouTube DJ | Broadcasting LOAD message to sync video: ${videoId}`);
         this._broadcastMessage({
           type: 'LOAD',
           data: { videoId },
@@ -1014,10 +1074,10 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       }
       
     } catch (error) {
-      console.error('🎵 YouTube DJ | Error loading video:', error);
+      logger.error('🎵 YouTube DJ | Error loading video:', error);
       
       if (retryCount < maxRetries) {
-        console.log(`🎵 YouTube DJ | Load failed, retry ${retryCount + 1}/${maxRetries}`);
+        logger.debug(`🎵 YouTube DJ | Load failed, retry ${retryCount + 1}/${maxRetries}`);
         setTimeout(() => {
           this._attemptVideoLoad(videoId, input, retryCount + 1);
         }, 1000);
@@ -1031,30 +1091,28 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Handle play button click
    */
   private _onPlayClick(): void {
-    if (!this.playerReady || !this.youtubePlayer) {
-      ui.notifications?.error('YouTube player not ready');
-      return;
-    }
-
     if (!this.isDJ) {
       ui.notifications?.warn('Only the DJ can control playback');
       return;
     }
 
-    try {
-      this.youtubePlayer.playVideo();
-      console.log('🎵 YouTube DJ | Play command sent via API');
-      
-      // Broadcast play command to other clients
-      this._broadcastMessage({
-        type: 'PLAY',
-        userId: game.user?.id || '',
-        timestamp: Date.now()
-      });
-    } catch (error) {
-      console.error('🎵 YouTube DJ | Error playing video:', error);
-      ui.notifications?.error('Failed to play video. Try again in a moment.');
-    }
+    // Ensure player is initialized before playing
+    this._ensurePlayerInitialized(() => {
+      try {
+        this.youtubePlayer.playVideo();
+        logger.debug('🎵 YouTube DJ | Play command sent via API');
+        
+        // Broadcast play command to other clients
+        this._broadcastMessage({
+          type: 'PLAY',
+          userId: game.user?.id || '',
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        logger.error('🎵 YouTube DJ | Error playing video:', error);
+        ui.notifications?.error('Failed to play video. Try again in a moment.');
+      }
+    });
   }
 
   /**
@@ -1073,7 +1131,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
 
     try {
       this.youtubePlayer.pauseVideo();
-      console.log('🎵 YouTube DJ | Pause command sent via API');
+      logger.debug('🎵 YouTube DJ | Pause command sent via API');
       
       // Broadcast pause command to other clients
       this._broadcastMessage({
@@ -1083,7 +1141,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       });
       
     } catch (error) {
-      console.error('🎵 YouTube DJ | Error pausing video:', error);
+      logger.error('🎵 YouTube DJ | Error pausing video:', error);
       ui.notifications?.error('Failed to pause video. Try again in a moment.');
     }
   }
@@ -1107,7 +1165,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         this._updateCurrentTimeDisplay(seekTime);
       }
     } catch (error) {
-      console.warn('🎵 YouTube DJ | Error getting duration for seek preview:', error);
+      logger.warn('🎵 YouTube DJ | Error getting duration for seek preview:', error);
     }
   }
 
@@ -1129,7 +1187,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         
         // Seek locally
         this.youtubePlayer.seekTo(seekTime, true);
-        console.log(`🎵 YouTube DJ | Seeking to ${seekTime.toFixed(1)}s (${percentage.toFixed(1)}%)`);
+        logger.debug(`🎵 YouTube DJ | Seeking to ${seekTime.toFixed(1)}s (${percentage.toFixed(1)}%)`);
         
         // Broadcast seek command to other clients
         this._broadcastMessage({
@@ -1141,7 +1199,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         
       }
     } catch (error) {
-      console.error('🎵 YouTube DJ | Error seeking video:', error);
+      logger.error('🎵 YouTube DJ | Error seeking video:', error);
       ui.notifications?.error('Failed to seek video. Try again in a moment.');
     }
   }
@@ -1187,7 +1245,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         }
       }
     } catch (error) {
-      console.warn('🎵 YouTube DJ | Error updating seek bar:', error);
+      logger.warn('🎵 YouTube DJ | Error updating seek bar:', error);
     }
   }
 
@@ -1205,13 +1263,13 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    */
   private _onJoinSessionClick(): void {
     if (this.playerReady && this.youtubePlayer) {
-      console.log('🎵 YouTube DJ | Player already exists, recreating...');
+      logger.debug('🎵 YouTube DJ | Player already exists, recreating...');
       // If player exists, recreate it
       this._recreatePlayer();
       return;
     }
 
-    console.log('🎵 YouTube DJ | User joining session with consent...');
+    logger.debug('🎵 YouTube DJ | User joining session with consent...');
     
     try {
       // Grant autoplay consent with user gesture
@@ -1275,9 +1333,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this._updateDJRequestsUI();
       
       ui.notifications?.info('Joining session... YouTube player will load momentarily.');
-      console.log('🎵 YouTube DJ | Session joined with user consent');
+      logger.debug('🎵 YouTube DJ | Session joined with user consent');
     } catch (error) {
-      console.error('🎵 YouTube DJ | Failed to join session:', error);
+      logger.error('🎵 YouTube DJ | Failed to join session:', error);
       ui.notifications?.error('Failed to join session. Please try again.');
     }
   }
@@ -1287,7 +1345,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Handle claim DJ button click
    */
   private _onClaimDJClick(): void {
-    console.log(`🎵 YouTube DJ | Claim DJ clicked - hasJoinedSession: ${this.hasJoinedSession}, isDJ: ${this.isDJ}, djUserId: ${this.djUserId}`);
+    logger.debug(`🎵 YouTube DJ | Claim DJ clicked - hasJoinedSession: ${this.hasJoinedSession}, isDJ: ${this.isDJ}, djUserId: ${this.djUserId}`);
     
     if (!this.hasJoinedSession) {
       ui.notifications?.warn('Please join the session first');
@@ -1300,12 +1358,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     }
     
     if (this.djUserId && this.djUserId !== game.user?.id) {
-      console.log(`🎵 YouTube DJ | Cannot claim DJ - current DJ is ${this.djUserId}, user is ${game.user?.id}`);
+      logger.debug(`🎵 YouTube DJ | Cannot claim DJ - current DJ is ${this.djUserId}, user is ${game.user?.id}`);
       ui.notifications?.warn('Someone else is already the DJ. They need to release the role first.');
       return;
     }
     
-    console.log('🎵 YouTube DJ | Attempting to claim DJ role manually...');
+    logger.debug('🎵 YouTube DJ | Attempting to claim DJ role manually...');
     this.isDJ = true;
     this.djUserId = game.user?.id || '';
     
@@ -1318,7 +1376,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       timestamp: Date.now()
     });
     
-    console.log('🎵 YouTube DJ | Claimed DJ role manually');
+    logger.debug('🎵 YouTube DJ | Claimed DJ role manually');
     ui.notifications?.success('You are now the DJ!');
     
     // Start heartbeat for new DJ
@@ -1342,7 +1400,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       return;
     }
     
-    console.log('🎵 YouTube DJ | Releasing DJ role...');
+    logger.debug('🎵 YouTube DJ | Releasing DJ role...');
     this.isDJ = false;
     this.djUserId = null;
     
@@ -1426,21 +1484,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     this.close();
   }
 
-  /**
-   * Update window title to include current video name
-   */
-  private _updateWindowTitle(): void {
-    const baseTitle = 'YouTube DJ - Synced Player';
-    if (this.currentVideoTitle) {
-      const newTitle = `${baseTitle} - ${this.currentVideoTitle}`;
-      if (this.element) {
-        const header = this.element.closest('.app')?.querySelector('.window-title');
-        if (header) {
-          header.textContent = newTitle;
-        }
-      }
-    }
-  }
+
   
   
   /**
@@ -1464,7 +1508,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     }
     
     // Send DJ request to current DJ
-    console.log('🎵 YouTube DJ | Requesting DJ role...');
+    logger.debug('🎵 YouTube DJ | Requesting DJ role...');
     
     this._broadcastMessage({
       type: 'DJ_REQUEST',
@@ -1538,7 +1582,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       return;
     }
     
-    console.log('🎵 YouTube DJ | GM override - taking DJ control');
+    logger.debug('🎵 YouTube DJ | GM override - taking DJ control');
     
     // Force claim DJ role
     const previousDJ = this.djUserId;
@@ -1575,11 +1619,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     const requesterId = button.dataset.requesterId;
     
     if (!requesterId) {
-      console.error('🎵 YouTube DJ | No requester ID found on approve button');
+      logger.error('🎵 YouTube DJ | No requester ID found on approve button');
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Approving DJ request from ${requesterId}`);
+    logger.debug(`🎵 YouTube DJ | Approving DJ request from ${requesterId}`);
     
     // Hand off DJ role
     this._handoffDJToUser(requesterId);
@@ -1596,11 +1640,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     const requesterId = button.dataset.requesterId;
     
     if (!requesterId) {
-      console.error('🎵 YouTube DJ | No requester ID found on deny button');
+      logger.error('🎵 YouTube DJ | No requester ID found on deny button');
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Denying DJ request from ${requesterId}`);
+    logger.debug(`🎵 YouTube DJ | Denying DJ request from ${requesterId}`);
     
     // Remove the request
     this._removeDJRequest(requesterId);
@@ -1635,16 +1679,16 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (this.containerObserver) {
       this.containerObserver.disconnect();
       this.containerObserver = null;
-      console.log('🎵 YouTube DJ | Container protection disabled');
+      logger.debug('🎵 YouTube DJ | Container protection disabled');
     }
     
     // Clean up YouTube player
     if (this.youtubePlayer) {
       try {
         this.youtubePlayer.destroy();
-        console.log('🎵 YouTube DJ | YouTube player destroyed');
+        logger.debug('🎵 YouTube DJ | YouTube player destroyed');
       } catch (error) {
-        console.log('🎵 YouTube DJ | Player cleanup error (expected)');
+        logger.debug('🎵 YouTube DJ | Player cleanup error (expected)');
       }
       this.youtubePlayer = null;
     }
@@ -1673,7 +1717,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         }
       } catch (error) {
         // Video data might not be available yet, that's OK
-        console.log('🎵 YouTube DJ | Video data not yet available');
+        logger.debug('🎵 YouTube DJ | Video data not yet available');
       }
     }
     
@@ -1681,11 +1725,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (!videoTitleElement?.textContent || videoTitleElement.textContent === 'No video loaded') {
       const currentVideo = this.queueState.items[this.queueState.currentIndex];
       if (currentVideo && videoTitleElement) {
-        videoTitleElement.textContent = currentVideo.title || currentVideo.videoId;
+        const videoTitle = currentVideo.title || currentVideo.videoId;
+        videoTitleElement.textContent = videoTitle;
       }
     }
     
-    console.log('🎵 YouTube DJ | UI status updated without re-render');
+    logger.debug('🎵 YouTube DJ | UI status updated without re-render');
   }
 
 
@@ -1712,15 +1757,15 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Initialize socket communication
    */
   private _initializeSocket(): void {
-    console.log('🎵 YouTube DJ | Initializing socket communication...');
-    console.log(`🎵 YouTube DJ | Socket channel: ${YouTubeDJApp.SOCKET_NAME}`);
-    console.log(`🎵 YouTube DJ | Current user: ${game.user?.name} (${game.user?.id})`);
-    console.log(`🎵 YouTube DJ | Socket instance:`, game.socket);
-    console.log(`🎵 YouTube DJ | Socket connected:`, game.socket?.connected);
-    console.log(`🎵 YouTube DJ | All users in world:`, Array.from(game.users?.values() || []).map(u => ({id: u.id, name: u.name, active: u.active})));
-    console.log(`🎵 YouTube DJ | World ID:`, game.world?.id);
-    console.log(`🎵 YouTube DJ | Game session:`, game.sessionId);
-    console.log(`🎵 YouTube DJ | Socket ID:`, game.socket?.id);
+    logger.debug('🎵 YouTube DJ | Initializing socket communication...');
+    logger.debug(`🎵 YouTube DJ | Socket channel: ${YouTubeDJApp.SOCKET_NAME}`);
+    logger.debug(`🎵 YouTube DJ | Current user: ${game.user?.name} (${game.user?.id})`);
+    logger.debug(`🎵 YouTube DJ | Socket instance:`, game.socket);
+    logger.debug(`🎵 YouTube DJ | Socket connected:`, game.socket?.connected);
+    logger.debug(`🎵 YouTube DJ | All users in world:`, Array.from(game.users?.values() || []).map(u => ({id: u.id, name: u.name, active: u.active})));
+    logger.debug(`🎵 YouTube DJ | World ID:`, game.world?.id);
+    logger.debug(`🎵 YouTube DJ | Game session:`, game.sessionId);
+    logger.debug(`🎵 YouTube DJ | Socket ID:`, game.socket?.id);
     
     // Set up socket listener
     game.socket?.on(YouTubeDJApp.SOCKET_NAME, this._onSocketMessage.bind(this));
@@ -1728,15 +1773,15 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Also listen to system socket for testing
     game.socket?.on('system', (data: any) => {
       if (data.type === 'test' && data.data?.userId !== game.user?.id) {
-        console.log('🎵 YouTube DJ | Received basic socket test from:', data.data);
+        logger.debug('🎵 YouTube DJ | Received basic socket test from:', data.data);
       }
     });
     
     // Listen to fallback channel
     game.socket?.on('module.bardic-inspiration.fallback', (data: any) => {
-      console.log('🎵 YouTube DJ | Received FALLBACK message:', data);
+      logger.debug('🎵 YouTube DJ | Received FALLBACK message:', data);
       if (data.bardic_dj_message && data.bardic_dj_message.userId !== game.user?.id) {
-        console.log('🎵 YouTube DJ | Processing fallback message...');
+        logger.debug('🎵 YouTube DJ | Processing fallback message...');
         this._onSocketMessage(data.bardic_dj_message);
       }
     });
@@ -1747,7 +1792,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     this.isConnected = true;
     
     // Test basic socket functionality
-    console.log('🎵 YouTube DJ | Testing socket with ping message...');
+    logger.debug('🎵 YouTube DJ | Testing socket with ping message...');
     setTimeout(() => {
       // First test with our custom channel
       this._broadcastMessage({
@@ -1757,7 +1802,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       });
       
       // Also test with a direct socket emit to see if basic socket works
-      console.log('🎵 YouTube DJ | Testing basic socket.emit...');
+      logger.debug('🎵 YouTube DJ | Testing basic socket.emit...');
       game.socket?.emit('system', {
         type: 'test',
         data: {message: 'Test from YouTube DJ', userId: game.user?.id}
@@ -1778,14 +1823,14 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     
     // Socket communication is now working properly!
     
-    console.log('🎵 YouTube DJ | Socket communication initialized');
+    logger.debug('🎵 YouTube DJ | Socket communication initialized');
   }
 
   /**
    * Load world-level state
    */
   private _loadWorldState(): void {
-    console.log('🎵 YouTube DJ | Loading world state...');
+    logger.debug('🎵 YouTube DJ | Loading world state...');
     
     try {
       // Load DJ state from world settings
@@ -1795,36 +1840,36 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       if (worldDJ) {
         const djUser = game.users?.get(worldDJ);
         const djActive = djUser?.active;
-        console.log(`🎵 YouTube DJ | Found existing DJ in world: ${worldDJ} (${djUser?.name}), active: ${djActive}`);
+        logger.debug(`🎵 YouTube DJ | Found existing DJ in world: ${worldDJ} (${djUser?.name}), active: ${djActive}`);
         
         if (djActive) {
           this.djUserId = worldDJ;
           this.isDJ = worldDJ === game.user?.id;
-          console.log(`🎵 YouTube DJ | Loaded DJ state - Current user is DJ: ${this.isDJ}`);
+          logger.debug(`🎵 YouTube DJ | Loaded DJ state - Current user is DJ: ${this.isDJ}`);
         } else {
-          console.log(`🎵 YouTube DJ | Previous DJ ${worldDJ} is inactive, clearing DJ state`);
+          logger.debug(`🎵 YouTube DJ | Previous DJ ${worldDJ} is inactive, clearing DJ state`);
           this.djUserId = null;
           this.isDJ = false;
         }
       }
       
       if (worldMembers && Array.isArray(worldMembers)) {
-        console.log(`🎵 YouTube DJ | Found existing session members:`, worldMembers);
+        logger.debug(`🎵 YouTube DJ | Found existing session members:`, worldMembers);
         this.sessionMembers = worldMembers;
       }
       
       // MVP-U5: Load queue state with validation
       const worldQueue = game.settings.get('core', YouTubeDJApp.WORLD_QUEUE_SETTING) as QueueState | null;
       if (worldQueue && this._validateQueueState(worldQueue)) {
-        console.log(`🎵 YouTube DJ | Found existing queue:`, worldQueue);
+        logger.debug(`🎵 YouTube DJ | Found existing queue:`, worldQueue);
         this.queueState = worldQueue;
       } else if (worldQueue) {
-        console.warn('🎵 YouTube DJ | Invalid queue state found, resetting to default');
+        logger.warn('🎵 YouTube DJ | Invalid queue state found, resetting to default');
         this._resetQueueState();
       }
       
     } catch (error) {
-      console.error('🎵 YouTube DJ | Error loading world state:', error);
+      logger.error('🎵 YouTube DJ | Error loading world state:', error);
       ui.notifications?.warn('Failed to load some session data - using defaults');
       this._resetQueueState();
     }
@@ -1870,14 +1915,14 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       mode: 'single-dj',
       djUserId: this.djUserId
     };
-    console.log('🎵 YouTube DJ | Queue state reset to default');
+    logger.debug('🎵 YouTube DJ | Queue state reset to default');
   }
 
   /**
    * Save current state to world settings (with GM fallback handling)
    */
   private _saveWorldState(): void {
-    console.log('🎵 YouTube DJ | Saving world state...');
+    logger.debug('🎵 YouTube DJ | Saving world state...');
     
     // Try to save directly if user is GM
     if (game.user?.isGM) {
@@ -1885,10 +1930,10 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         game.settings.set('core', YouTubeDJApp.WORLD_DJ_SETTING, this.djUserId);
         game.settings.set('core', YouTubeDJApp.WORLD_MEMBERS_SETTING, this.sessionMembers);
         game.settings.set('core', YouTubeDJApp.WORLD_QUEUE_SETTING, this.queueState);
-        console.log('🎵 YouTube DJ | World state saved by GM');
+        logger.debug('🎵 YouTube DJ | World state saved by GM');
         return;
       } catch (error) {
-        console.error('🎵 YouTube DJ | Failed to save world state as GM:', error);
+        logger.error('🎵 YouTube DJ | Failed to save world state as GM:', error);
       }
     }
     
@@ -1896,7 +1941,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     const activeGMs = Array.from(game.users?.values() || []).filter(user => user.isGM && user.active);
     
     if (activeGMs.length > 0) {
-      console.log(`🎵 YouTube DJ | Non-GM user, requesting GM to save state (${activeGMs.length} active GMs)`);
+      logger.debug(`🎵 YouTube DJ | Non-GM user, requesting GM to save state (${activeGMs.length} active GMs)`);
       
       // Broadcast state save request to GMs
       this._broadcastMessage({
@@ -1910,7 +1955,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         timestamp: Date.now()
       });
     } else {
-      console.log('🎵 YouTube DJ | No active GMs available, state changes will be temporary');
+      logger.debug('🎵 YouTube DJ | No active GMs available, state changes will be temporary');
       // Note: In a production system, you might want to queue state changes
       // and save them when a GM becomes available
     }
@@ -1920,7 +1965,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Request current session state from other users
    */
   private _requestSessionState(): void {
-    console.log('🎵 YouTube DJ | Requesting session state from other users...');
+    logger.debug('🎵 YouTube DJ | Requesting session state from other users...');
     
     this._broadcastMessage({
       type: 'STATE_REQUEST',
@@ -1933,7 +1978,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * MVP-U3: Request sync state for late joiners
    */
   private _requestLatejoinSync(): void {
-    console.log('🎵 YouTube DJ | Requesting sync state as late joiner...');
+    logger.debug('🎵 YouTube DJ | Requesting sync state as late joiner...');
     
     // Wait a moment for player to be ready, then request sync
     setTimeout(() => {
@@ -1957,9 +2002,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Try to claim DJ role if no one is currently DJ or current DJ is inactive
     if (!this.isDJ && (!this.djUserId || !currentDJActive)) {
       if (this.djUserId && !currentDJActive) {
-        console.log(`🎵 YouTube DJ | Current DJ ${this.djUserId} is inactive, claiming role...`);
+        logger.debug(`🎵 YouTube DJ | Current DJ ${this.djUserId} is inactive, claiming role...`);
       } else {
-        console.log('🎵 YouTube DJ | No DJ found, attempting to claim DJ role...');
+        logger.debug('🎵 YouTube DJ | No DJ found, attempting to claim DJ role...');
       }
       
       this.isDJ = true;
@@ -1974,7 +2019,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         timestamp: Date.now()
       });
       
-      console.log('🎵 YouTube DJ | Claimed DJ role');
+      logger.debug('🎵 YouTube DJ | Claimed DJ role');
       
       // Start heartbeat for new DJ
       if (this.playerReady) {
@@ -1987,7 +2032,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this._updateTransportControls();
       this._updateSessionMembersUI();
     } else {
-      console.log(`🎵 YouTube DJ | DJ role not claimed - isDJ: ${this.isDJ}, djUserId: ${this.djUserId}, currentDJActive: ${currentDJActive}`);
+      logger.debug(`🎵 YouTube DJ | DJ role not claimed - isDJ: ${this.isDJ}, djUserId: ${this.djUserId}, currentDJActive: ${currentDJActive}`);
     }
   }
 
@@ -1995,17 +2040,17 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Handle incoming socket messages
    */
   private _onSocketMessage(message: YouTubeDJMessage): void {
-    console.log('🎵 YouTube DJ | Received socket message:', message);
-    console.log(`🎵 YouTube DJ | Message from: ${message.userId}, Current user: ${game.user?.id}`);
-    console.log(`🎵 YouTube DJ | All connected users:`, Array.from(game.users?.values() || []).map(u => ({id: u.id, name: u.name, active: u.active})));
+    logger.debug('🎵 YouTube DJ | Received socket message:', message);
+    logger.debug(`🎵 YouTube DJ | Message from: ${message.userId}, Current user: ${game.user?.id}`);
+    logger.debug(`🎵 YouTube DJ | All connected users:`, Array.from(game.users?.values() || []).map(u => ({id: u.id, name: u.name, active: u.active})));
     
     // Ignore messages from self
     if (message.userId === game.user?.id) {
-      console.log('🎵 YouTube DJ | Ignoring message from self');
+      logger.debug('🎵 YouTube DJ | Ignoring message from self');
       return;
     }
 
-    console.log(`🎵 YouTube DJ | Processing message type: ${message.type}`);
+    logger.debug(`🎵 YouTube DJ | Processing message type: ${message.type}`);
 
     switch (message.type) {
       case 'STATE_REQUEST':
@@ -2066,10 +2111,10 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         this._handleQueueUpdate(message);
         break;
       case 'PING':
-        console.log(`🎵 YouTube DJ | PING received from ${message.userId}!`);
+        logger.debug(`🎵 YouTube DJ | PING received from ${message.userId}!`);
         break;
       default:
-        console.log(`🎵 YouTube DJ | Unknown message type: ${message.type}`);
+        logger.debug(`🎵 YouTube DJ | Unknown message type: ${message.type}`);
         break;
     }
   }
@@ -2078,7 +2123,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Handle state request message
    */
   private _handleStateRequest(message: YouTubeDJMessage): void {
-    console.log(`🎵 YouTube DJ | Sending state response to ${message.userId}`);
+    logger.debug(`🎵 YouTube DJ | Sending state response to ${message.userId}`);
     
     // Prepare response data
     const responseData: any = {
@@ -2103,9 +2148,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           serverTimestamp: Date.now()
         };
         
-        console.log(`🎵 YouTube DJ | Including playback state in response: ${isPlaying ? 'PLAYING' : 'PAUSED'} at ${currentTime.toFixed(1)}s`);
+        logger.debug(`🎵 YouTube DJ | Including playback state in response: ${isPlaying ? 'PLAYING' : 'PAUSED'} at ${currentTime.toFixed(1)}s`);
       } catch (error) {
-        console.warn('🎵 YouTube DJ | Error getting playback state for response:', error);
+        logger.warn('🎵 YouTube DJ | Error getting playback state for response:', error);
       }
     }
     
@@ -2122,14 +2167,14 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Handle state response message
    */
   private _handleStateResponse(message: YouTubeDJMessage): void {
-    console.log(`🎵 YouTube DJ | Received state response:`, message.data);
+    logger.debug(`🎵 YouTube DJ | Received state response:`, message.data);
     
     if (message.data) {
       // Update local state with received state
       if (message.data.djUserId && !this.djUserId) {
         this.djUserId = message.data.djUserId;
         this.isDJ = this.djUserId === game.user?.id;
-        console.log(`🎵 YouTube DJ | Updated DJ from state response: ${this.djUserId}`);
+        logger.debug(`🎵 YouTube DJ | Updated DJ from state response: ${this.djUserId}`);
       }
       
       if (message.data.sessionMembers && Array.isArray(message.data.sessionMembers)) {
@@ -2140,12 +2185,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
             this.sessionMembers.push(member);
           }
         });
-        console.log(`🎵 YouTube DJ | Updated session members from state response`);
+        logger.debug(`🎵 YouTube DJ | Updated session members from state response`);
       }
       
       // MVP-U5: Handle queue state recovery
       if (message.data.queueState && this._validateQueueState(message.data.queueState)) {
-        console.log('🎵 YouTube DJ | Recovering queue state from peer');
+        logger.debug('🎵 YouTube DJ | Recovering queue state from peer');
         this.queueState = message.data.queueState;
         this._updateQueueUI();
       }
@@ -2153,7 +2198,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       // MVP-U3: Handle late joiner sync with current playback state
       if (message.data.currentPlayback && !this.isDJ && this.playerReady && this.youtubePlayer) {
         const playback = message.data.currentPlayback;
-        console.log(`🎵 YouTube DJ | Late joiner sync - Loading ${playback.videoId} at ${playback.currentTime.toFixed(1)}s`);
+        logger.debug(`🎵 YouTube DJ | Late joiner sync - Loading ${playback.videoId} at ${playback.currentTime.toFixed(1)}s`);
         
         try {
           // Load the video and seek to current position
@@ -2164,17 +2209,17 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
             setTimeout(() => {
               if (playback.isPlaying) {
                 this.youtubePlayer.playVideo();
-                console.log('🎵 YouTube DJ | Late joiner sync - Started playback');
+                logger.debug('🎵 YouTube DJ | Late joiner sync - Started playback');
               } else {
                 this.youtubePlayer.pauseVideo();
-                console.log('🎵 YouTube DJ | Late joiner sync - Paused');
+                logger.debug('🎵 YouTube DJ | Late joiner sync - Paused');
               }
             }, 500);
             
             ui.notifications?.info('Synced with ongoing session!');
           }
         } catch (error) {
-          console.error('🎵 YouTube DJ | Error during late joiner sync:', error);
+          logger.error('🎵 YouTube DJ | Error during late joiner sync:', error);
           ui.notifications?.warn('Failed to sync video playback');
         }
       }
@@ -2183,7 +2228,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       try {
         this._saveWorldState();
       } catch (error) {
-        console.error('🎵 YouTube DJ | Failed to save recovered state:', error);
+        logger.error('🎵 YouTube DJ | Failed to save recovered state:', error);
       }
       
       this._updateSessionMembersUI();
@@ -2201,7 +2246,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Received state save request from ${message.userId}`);
+    logger.debug(`🎵 YouTube DJ | Received state save request from ${message.userId}`);
     
     if (message.data) {
       try {
@@ -2216,9 +2261,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           game.settings.set('core', YouTubeDJApp.WORLD_QUEUE_SETTING, message.data.queueState);
         }
         
-        console.log(`🎵 YouTube DJ | GM saved state on behalf of ${game.users?.get(message.userId)?.name}`);
+        logger.debug(`🎵 YouTube DJ | GM saved state on behalf of ${game.users?.get(message.userId)?.name}`);
       } catch (error) {
-        console.error('🎵 YouTube DJ | Failed to save state on behalf of non-GM:', error);
+        logger.error('🎵 YouTube DJ | Failed to save state on behalf of non-GM:', error);
       }
     }
   }
@@ -2231,7 +2276,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       // First claim wins
       this.djUserId = message.userId;
       this.isDJ = (message.userId === game.user?.id);
-      console.log(`🎵 YouTube DJ | DJ role claimed by: ${game.users?.get(message.userId)?.name}`);
+      logger.debug(`🎵 YouTube DJ | DJ role claimed by: ${game.users?.get(message.userId)?.name}`);
       
       // Only GM saves to world state, others just update UI
       this._saveWorldState();
@@ -2252,12 +2297,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Handle DJ release message
    */
   private _handleDJRelease(message: YouTubeDJMessage): void {
-    console.log(`🎵 YouTube DJ | Received DJ_RELEASE from ${message.userId}, current DJ: ${this.djUserId}`);
+    logger.debug(`🎵 YouTube DJ | Received DJ_RELEASE from ${message.userId}, current DJ: ${this.djUserId}`);
     
     if (this.djUserId === message.userId) {
       this.djUserId = null;
       this.isDJ = false;
-      console.log('🎵 YouTube DJ | DJ role released, updating local state');
+      logger.debug('🎵 YouTube DJ | DJ role released, updating local state');
       
       // Save to world state
       this._saveWorldState();
@@ -2270,7 +2315,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this._updateDJStatusHeader();
       this._updateSessionMembersUI();
     } else {
-      console.log(`🎵 YouTube DJ | DJ_RELEASE ignored - not from current DJ (${this.djUserId} vs ${message.userId})`);
+      logger.debug(`🎵 YouTube DJ | DJ_RELEASE ignored - not from current DJ (${this.djUserId} vs ${message.userId})`);
     }
   }
 
@@ -2283,11 +2328,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Received DJ request from ${message.userId}`);
+    logger.debug(`🎵 YouTube DJ | Received DJ request from ${message.userId}`);
     
     const requesterUser = game.users?.get(message.userId);
     if (!requesterUser) {
-      console.warn('🎵 YouTube DJ | DJ request from unknown user');
+      logger.warn('🎵 YouTube DJ | DJ request from unknown user');
       return;
     }
     
@@ -2312,7 +2357,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * MVP-U6: Handle DJ handoff message
    */
   private _handleDJHandoff(message: YouTubeDJMessage): void {
-    console.log(`🎵 YouTube DJ | Received DJ handoff from ${message.userId} to ${message.data?.newDJ}`);
+    logger.debug(`🎵 YouTube DJ | Received DJ handoff from ${message.userId} to ${message.data?.newDJ}`);
     
     if (message.data?.newDJ === game.user?.id) {
       // This user is receiving DJ role
@@ -2349,12 +2394,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * MVP-U6: Handle GM override message
    */
   private _handleGMOverride(message: YouTubeDJMessage): void {
-    console.log(`🎵 YouTube DJ | Received GM override from ${message.userId}`);
+    logger.debug(`🎵 YouTube DJ | Received GM override from ${message.userId}`);
     
     // Verify sender is actually a GM
     const gmUser = game.users?.get(message.userId);
     if (!gmUser?.isGM) {
-      console.warn('🎵 YouTube DJ | Non-GM user attempted override - ignoring');
+      logger.warn('🎵 YouTube DJ | Non-GM user attempted override - ignoring');
       return;
     }
     
@@ -2392,7 +2437,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    */
   private _handleRemotePlay(message: YouTubeDJMessage): void {
     if (!this.isDJ && this.youtubePlayer && this.playerReady) {
-      console.log('🎵 YouTube DJ | Executing remote PLAY command');
+      logger.debug('🎵 YouTube DJ | Executing remote PLAY command');
       this.youtubePlayer.playVideo();
     }
   }
@@ -2402,7 +2447,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    */
   private _handleRemotePause(message: YouTubeDJMessage): void {
     if (!this.isDJ && this.youtubePlayer && this.playerReady) {
-      console.log('🎵 YouTube DJ | Executing remote PAUSE command');
+      logger.debug('🎵 YouTube DJ | Executing remote PAUSE command');
       this.youtubePlayer.pauseVideo();
     }
   }
@@ -2412,7 +2457,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    */
   private _handleRemoteSeek(message: YouTubeDJMessage): void {
     if (!this.isDJ && this.youtubePlayer && this.playerReady && message.data?.time) {
-      console.log('🎵 YouTube DJ | Executing remote SEEK command to:', message.data.time);
+      logger.debug('🎵 YouTube DJ | Executing remote SEEK command to:', message.data.time);
       this.youtubePlayer.seekTo(message.data.time, true);
     }
   }
@@ -2422,7 +2467,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    */
   private _handleRemoteLoad(message: YouTubeDJMessage): void {
     if (!this.isDJ && message.data?.videoId) {
-      console.log('🎵 YouTube DJ | Executing remote LOAD command for:', message.data.videoId);
+      logger.debug('🎵 YouTube DJ | Executing remote LOAD command for:', message.data.videoId);
       if (this.youtubePlayer && this.playerReady) {
         this.youtubePlayer.loadVideoById(message.data.videoId);
       }
@@ -2445,7 +2490,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       const existingIndex = this.sessionMembers.findIndex(m => m.id === user.id);
       if (existingIndex === -1) {
         this.sessionMembers.push(memberData);
-        console.log(`🎵 YouTube DJ | User joined session: ${user.name}`);
+        logger.debug(`🎵 YouTube DJ | User joined session: ${user.name}`);
         
         // Save updated session members to world state
         this._saveWorldState();
@@ -2462,11 +2507,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (memberIndex !== -1) {
       const member = this.sessionMembers[memberIndex];
       this.sessionMembers.splice(memberIndex, 1);
-      console.log(`🎵 YouTube DJ | User left session: ${member.name}`);
+      logger.debug(`🎵 YouTube DJ | User left session: ${member.name}`);
       
       // MVP-U6: Handle DJ leaving without handoff
       if (this.djUserId === message.userId) {
-        console.log('🎵 YouTube DJ | DJ left without handoff - initiating auto-recovery');
+        logger.debug('🎵 YouTube DJ | DJ left without handoff - initiating auto-recovery');
         
         // Clear DJ state
         this.djUserId = null;
@@ -2489,14 +2534,14 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * MVP-U6: Initiate auto-recovery when DJ leaves without handoff
    */
   private _initiateAutoRecovery(): void {
-    console.log('🎵 YouTube DJ | Initiating DJ auto-recovery...');
+    logger.debug('🎵 YouTube DJ | Initiating DJ auto-recovery...');
     
     // Wait a moment to see if anyone else claims DJ role
     setTimeout(() => {
       if (!this.djUserId && this.sessionMembers.length > 0) {
         // Try to claim DJ role if we're still in session
         if (this.hasJoinedSession) {
-          console.log('🎵 YouTube DJ | Auto-claiming DJ role after previous DJ left');
+          logger.debug('🎵 YouTube DJ | Auto-claiming DJ role after previous DJ left');
           
           this.isDJ = true;
           this.djUserId = game.user?.id || '';
@@ -2535,11 +2580,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     this._stopHeartbeat();
     
     if (!this.isDJ) {
-      console.log('🎵 YouTube DJ | Not DJ, skipping heartbeat start');
+      logger.debug('🎵 YouTube DJ | Not DJ, skipping heartbeat start');
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Starting heartbeat system (${this.heartbeatFrequency}ms interval)`);
+    logger.debug(`🎵 YouTube DJ | Starting heartbeat system (${this.heartbeatFrequency}ms interval)`);
     
     this.heartbeatInterval = window.setInterval(() => {
       if (this.isDJ && this.playerReady && this.youtubePlayer) {
@@ -2555,7 +2600,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (this.heartbeatInterval) {
       clearInterval(this.heartbeatInterval);
       this.heartbeatInterval = null;
-      console.log('🎵 YouTube DJ | Heartbeat stopped');
+      logger.debug('🎵 YouTube DJ | Heartbeat stopped');
     }
   }
 
@@ -2593,10 +2638,10 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         timestamp: Date.now()
       });
       
-      console.log(`🎵 YouTube DJ | Heartbeat sent - ${isPlaying ? 'PLAYING' : 'PAUSED'} at ${currentTime.toFixed(1)}s`);
+      logger.debug(`🎵 YouTube DJ | Heartbeat sent - ${isPlaying ? 'PLAYING' : 'PAUSED'} at ${currentTime.toFixed(1)}s`);
       
     } catch (error) {
-      console.warn('🎵 YouTube DJ | Error sending heartbeat:', error);
+      logger.warn('🎵 YouTube DJ | Error sending heartbeat:', error);
     }
   }
 
@@ -2611,17 +2656,17 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     
     const heartbeat = message.data as HeartbeatData;
     if (!heartbeat) {
-      console.warn('🎵 YouTube DJ | Invalid heartbeat data received');
+      logger.warn('🎵 YouTube DJ | Invalid heartbeat data received');
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Heartbeat received - ${heartbeat.isPlaying ? 'PLAYING' : 'PAUSED'} at ${heartbeat.currentTime.toFixed(1)}s`);
+    logger.debug(`🎵 YouTube DJ | Heartbeat received - ${heartbeat.isPlaying ? 'PLAYING' : 'PAUSED'} at ${heartbeat.currentTime.toFixed(1)}s`);
     
     try {
       // Check if we need to sync video
       const currentVideoData = this.youtubePlayer.getVideoData();
       if (currentVideoData?.video_id !== heartbeat.videoId && heartbeat.videoId) {
-        console.log(`🎵 YouTube DJ | Video sync needed: ${currentVideoData?.video_id} -> ${heartbeat.videoId}`);
+        logger.debug(`🎵 YouTube DJ | Video sync needed: ${currentVideoData?.video_id} -> ${heartbeat.videoId}`);
         this.youtubePlayer.loadVideoById(heartbeat.videoId, heartbeat.currentTime);
         return;
       }
@@ -2634,11 +2679,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       // Calculate drift
       const timeDrift = Math.abs(localTime - heartbeat.currentTime);
       
-      console.log(`🎵 YouTube DJ | Sync check - Local: ${localTime.toFixed(1)}s, Remote: ${heartbeat.currentTime.toFixed(1)}s, Drift: ${timeDrift.toFixed(1)}s`);
+      logger.debug(`🎵 YouTube DJ | Sync check - Local: ${localTime.toFixed(1)}s, Remote: ${heartbeat.currentTime.toFixed(1)}s, Drift: ${timeDrift.toFixed(1)}s`);
       
       // Sync playback state if different
       if (localIsPlaying !== heartbeat.isPlaying) {
-        console.log(`🎵 YouTube DJ | Playback state sync: ${localIsPlaying ? 'PLAYING' : 'PAUSED'} -> ${heartbeat.isPlaying ? 'PLAYING' : 'PAUSED'}`);
+        logger.debug(`🎵 YouTube DJ | Playback state sync: ${localIsPlaying ? 'PLAYING' : 'PAUSED'} -> ${heartbeat.isPlaying ? 'PLAYING' : 'PAUSED'}`);
         if (heartbeat.isPlaying) {
           this.youtubePlayer.playVideo();
         } else {
@@ -2648,12 +2693,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       // Drift correction - seek if out of tolerance
       if (timeDrift > this.driftTolerance) {
-        console.log(`🎵 YouTube DJ | Drift correction: seeking from ${localTime.toFixed(1)}s to ${heartbeat.currentTime.toFixed(1)}s (drift: ${timeDrift.toFixed(1)}s)`);
+        logger.debug(`🎵 YouTube DJ | Drift correction: seeking from ${localTime.toFixed(1)}s to ${heartbeat.currentTime.toFixed(1)}s (drift: ${timeDrift.toFixed(1)}s)`);
         this.youtubePlayer.seekTo(heartbeat.currentTime, true);
       }
       
     } catch (error) {
-      console.error('🎵 YouTube DJ | Error processing heartbeat:', error);
+      logger.error('🎵 YouTube DJ | Error processing heartbeat:', error);
     }
   }
 
@@ -2708,13 +2753,13 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this._fetchVideoTitle(cleanVideoId, videoItem.id);
       
       this.queueState.items.push(videoItem);
-      console.log(`🎵 YouTube DJ | Added to queue: ${videoId}`);
+      logger.debug(`🎵 YouTube DJ | Added to queue: ${videoId}`);
       
       // Save to world state with error handling
       try {
         this._saveWorldState();
       } catch (error) {
-        console.error('🎵 YouTube DJ | Failed to save queue state:', error);
+        logger.error('🎵 YouTube DJ | Failed to save queue state:', error);
         ui.notifications?.warn('Queue saved locally but may not sync to other clients');
       }
       
@@ -2732,7 +2777,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       ui.notifications?.success(`Added to queue: ${cleanVideoId}`);
       
     } catch (error) {
-      console.error('🎵 YouTube DJ | Error adding to queue:', error);
+      logger.error('🎵 YouTube DJ | Error adding to queue:', error);
       
       // Provide user-friendly error messages
       let userMessage = 'Failed to add video to queue';
@@ -2755,7 +2800,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     try {
       const index = this.queueState.items.findIndex(item => item.id === queueId);
       if (index === -1) {
-        console.warn(`🎵 YouTube DJ | Queue item not found: ${queueId}`);
+        logger.warn(`🎵 YouTube DJ | Queue item not found: ${queueId}`);
         ui.notifications?.warn('Video not found in queue');
         return;
       }
@@ -2772,13 +2817,13 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         }
       }
       
-      console.log(`🎵 YouTube DJ | Removed from queue: ${removedItem.videoId}`);
+      logger.debug(`🎵 YouTube DJ | Removed from queue: ${removedItem.videoId}`);
       
       // Save to world state with error handling
       try {
         this._saveWorldState();
       } catch (error) {
-        console.error('🎵 YouTube DJ | Failed to save queue state:', error);
+        logger.error('🎵 YouTube DJ | Failed to save queue state:', error);
         ui.notifications?.warn('Queue updated locally but may not sync to other clients');
       }
       
@@ -2796,7 +2841,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       ui.notifications?.success(`Removed from queue: ${removedItem.videoId}`);
       
     } catch (error) {
-      console.error('🎵 YouTube DJ | Error removing from queue:', error);
+      logger.error('🎵 YouTube DJ | Error removing from queue:', error);
       ui.notifications?.error(`Failed to remove video from queue: ${error.message}`);
     }
   }
@@ -2817,23 +2862,31 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (this.queueState.currentIndex >= this.queueState.items.length) {
       this.queueState.currentIndex = 0;
       ui.notifications?.info('Queue reached end - restarting from beginning');
-      console.log('🎵 YouTube DJ | Queue looped back to beginning');
+      logger.debug('🎵 YouTube DJ | Queue looped back to beginning');
     }
     
     const currentVideo = this.queueState.items[this.queueState.currentIndex];
-    console.log(`🎵 YouTube DJ | Playing next in queue: ${currentVideo.videoId}`);
+    logger.debug(`🎵 YouTube DJ | Playing next in queue: ${currentVideo.videoId}`);
     
-    // Load and play the video
-    if (this.youtubePlayer && this.playerReady) {
-      this.youtubePlayer.loadVideoById(currentVideo.videoId);
-      
-      // Update title and window title after load
-      this.currentVideoTitle = currentVideo.title || currentVideo.videoId;
-      setTimeout(() => {
-        this._updatePlayerStatusUI();
-        this._updateWindowTitle();
-      }, 1000);
-    }
+    // Load and play the video (ensure player is initialized first)
+    this._ensurePlayerInitialized(() => {
+      if (this.youtubePlayer && this.playerReady) {
+        this.youtubePlayer.loadVideoById(currentVideo.videoId);
+        
+        // Update UI after load
+        setTimeout(() => {
+          this._updatePlayerStatusUI();
+        }, 1000);
+        
+        // Also broadcast load to sync video
+        this._broadcastMessage({
+          type: 'LOAD',
+          data: { videoId: currentVideo.videoId },
+          userId: game.user?.id || '',
+          timestamp: Date.now()
+        });
+      }
+    });
     
     // Save to world state
     this._saveWorldState();
@@ -2842,14 +2895,6 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     this._broadcastMessage({
       type: 'QUEUE_NEXT',
       data: { currentIndex: this.queueState.currentIndex },
-      userId: game.user?.id || '',
-      timestamp: Date.now()
-    });
-    
-    // Also broadcast load to sync video
-    this._broadcastMessage({
-      type: 'LOAD',
-      data: { videoId: currentVideo.videoId },
       userId: game.user?.id || '',
       timestamp: Date.now()
     });
@@ -2866,7 +2911,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _handleQueueAdd(message: YouTubeDJMessage): void {
     if (message.data?.videoItem) {
       this.queueState.items.push(message.data.videoItem);
-      console.log(`🎵 YouTube DJ | Queue item added by ${message.userId}`);
+      logger.debug(`🎵 YouTube DJ | Queue item added by ${message.userId}`);
       this._updateQueueUI();
     }
   }
@@ -2885,7 +2930,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           this.queueState.currentIndex--;
         }
         
-        console.log(`🎵 YouTube DJ | Queue item removed by ${message.userId}`);
+        logger.debug(`🎵 YouTube DJ | Queue item removed by ${message.userId}`);
         this._updateQueueUI();
       }
     }
@@ -2897,7 +2942,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _handleQueueNext(message: YouTubeDJMessage): void {
     if (message.data?.currentIndex !== undefined) {
       this.queueState.currentIndex = message.data.currentIndex;
-      console.log(`🎵 YouTube DJ | Queue advanced by ${message.userId}`);
+      logger.debug(`🎵 YouTube DJ | Queue advanced by ${message.userId}`);
       this._updateQueueUI();
     }
   }
@@ -2908,7 +2953,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _handleQueueUpdate(message: YouTubeDJMessage): void {
     if (message.data?.queueState) {
       this.queueState = message.data.queueState;
-      console.log(`🎵 YouTube DJ | Queue updated by ${message.userId}`);
+      logger.debug(`🎵 YouTube DJ | Queue updated by ${message.userId}`);
       this._updateQueueUI();
     }
   }
@@ -2919,7 +2964,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _updateQueueUI(): void {
     const queueSection = this.element.querySelector('.queue-section');
     if (!queueSection) {
-      console.log('🎵 YouTube DJ | Queue section not found, creating it');
+      logger.debug('🎵 YouTube DJ | Queue section not found, creating it');
       this._ensureQueueSectionExists();
       return;
     }
@@ -2988,7 +3033,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       nextBtn.disabled = this.queueState.items.length === 0;
     }
     
-    console.log('🎵 YouTube DJ | Queue UI updated');
+    logger.debug('🎵 YouTube DJ | Queue UI updated');
   }
 
   /**
@@ -2998,11 +3043,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Update only the session members section without destroying player
     const membersContainer = this.element.querySelector('.members-list');
     if (!membersContainer) {
-      console.log('🎵 YouTube DJ | Members list container not found, skipping update');
+      logger.debug('🎵 YouTube DJ | Members list container not found, skipping update');
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Updating session members - count: ${this.sessionMembers.length}`);
+    logger.debug(`🎵 YouTube DJ | Updating session members - count: ${this.sessionMembers.length}`);
     
     // Clear existing members
     membersContainer.innerHTML = '';
@@ -3038,20 +3083,24 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _updateTransportControls(): void {
     const transportContainer = this.element.querySelector('.transport-controls');
     if (!transportContainer) {
-      console.log('🎵 YouTube DJ | Transport controls container not found, skipping update');
+      logger.debug('🎵 YouTube DJ | Transport controls container not found, skipping update');
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Updating transport controls - isDJ: ${this.isDJ}, playerReady: ${this.playerReady}`);
+    logger.debug(`🎵 YouTube DJ | Updating transport controls - isDJ: ${this.isDJ}, playerReady: ${this.playerReady}`);
     
-    // Update transport controls content based on DJ status
-    transportContainer.innerHTML = '';
+    // Update transport buttons container content based on DJ status
+    const transportButtons = transportContainer.querySelector('.transport-buttons');
+    if (!transportButtons) {
+      logger.debug('🎵 YouTube DJ | Transport buttons container not found, skipping update');
+      return;
+    }
     
     if (this.isDJ) {
       // Show DJ controls (play/pause/next buttons)
       const disabledAttr = this.playerReady ? '' : 'disabled';
       const nextDisabledAttr = this.queueState.items.length > 0 ? '' : 'disabled';
-      transportContainer.innerHTML = `
+      transportButtons.innerHTML = `
         <button 
           type="button" 
           class="play-btn transport-btn"
@@ -3076,24 +3125,24 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           <i class="fas fa-step-forward"></i>
           Next
         </button>
-        <div class="mute-control">
-          <button type="button" class="mute-player-btn" title="${this.isPlayerMuted ? 'Unmute Player' : 'Mute Player'}">
-            <i class="fas ${this.isPlayerMuted ? 'fa-volume-mute' : 'fa-volume-up'}"></i>
-          </button>
-        </div>
       `;
     } else {
-      // Show listener info with mute control
-      transportContainer.innerHTML = `
+      // Show listener info 
+      transportButtons.innerHTML = `
         <div class="listener-info">
           <i class="fas fa-info-circle"></i>
           <p>Playback is controlled by the DJ</p>
         </div>
-        <div class="mute-control">
-          <button type="button" class="mute-player-btn" title="${this.isPlayerMuted ? 'Unmute Player' : 'Mute Player'}">
-            <i class="fas ${this.isPlayerMuted ? 'fa-volume-mute' : 'fa-volume-up'}"></i>
-          </button>
-        </div>
+      `;
+    }
+    
+    // Update mute control (always present)
+    const muteControl = transportContainer.querySelector('.mute-control');
+    if (muteControl) {
+      muteControl.innerHTML = `
+        <button type="button" class="mute-player-btn" title="${this.isPlayerMuted ? 'Unmute Player' : 'Mute Player'}">
+          <i class="fas ${this.isPlayerMuted ? 'fa-volume-mute' : 'fa-volume-up'}"></i>
+        </button>
       `;
     }
     
@@ -3118,7 +3167,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Update URL input section for DJ
     this._updateUrlInputSection();
     
-    console.log(`🎵 YouTube DJ | Transport controls updated - isDJ: ${this.isDJ}, playerReady: ${this.playerReady}`);
+    logger.debug(`🎵 YouTube DJ | Transport controls updated - isDJ: ${this.isDJ}, playerReady: ${this.playerReady}`);
   }
 
   /**
@@ -3135,7 +3184,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       }
     }, 500);
     
-    console.log('🎵 YouTube DJ | Seek bar updates started');
+    logger.debug('🎵 YouTube DJ | Seek bar updates started');
   }
 
   /**
@@ -3145,7 +3194,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (this.seekUpdateInterval) {
       clearInterval(this.seekUpdateInterval);
       this.seekUpdateInterval = null;
-      console.log('🎵 YouTube DJ | Seek bar updates stopped');
+      logger.debug('🎵 YouTube DJ | Seek bar updates stopped');
     }
   }
 
@@ -3158,7 +3207,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (this.isDJ) {
       // Create seek section if it doesn't exist
       if (!seekSection) {
-        console.log('🎵 YouTube DJ | Creating seek section for DJ');
+        logger.debug('🎵 YouTube DJ | Creating seek section for DJ');
         seekSection = document.createElement('div');
         seekSection.className = 'seek-section';
         seekSection.innerHTML = `
@@ -3199,7 +3248,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     } else {
       // Remove seek section for non-DJ users
       if (seekSection) {
-        console.log('🎵 YouTube DJ | Removing seek section for non-DJ user');
+        logger.debug('🎵 YouTube DJ | Removing seek section for non-DJ user');
         seekSection.remove();
       }
     }
@@ -3209,78 +3258,56 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Update URL input section without full re-render
    */
   private _updateUrlInputSection(): void {
-    let urlInputSection = this.element.querySelector('.url-input-section');
+    const urlInputSection = this.element.querySelector('.url-input-section');
+    if (!urlInputSection) {
+      logger.debug('🎵 YouTube DJ | URL input section not found, skipping update');
+      return;
+    }
     
+    logger.debug(`🎵 YouTube DJ | Updating URL input section - isDJ: ${this.isDJ}, playerReady: ${this.playerReady}`);
+    
+    // Update section state based on DJ status
     if (this.isDJ) {
-      // Create URL input section if it doesn't exist
-      if (!urlInputSection) {
-        console.log('🎵 YouTube DJ | Creating URL input section for DJ');
-        urlInputSection = document.createElement('div');
-        urlInputSection.className = 'url-input-section';
-        urlInputSection.innerHTML = `
-          <div class="input-group">
-            <input 
-              type="text" 
-              class="youtube-url-input" 
-              placeholder="Paste YouTube URL or video ID..."
-              ${this.playerReady ? '' : 'disabled'}
-            >
-            <button 
-              type="button" 
-              class="add-to-queue-btn"
-              ${this.playerReady ? '' : 'disabled'}
-            >
-              <i class="fas fa-plus"></i>
-              Add to Queue
-            </button>
-            <button 
-              type="button" 
-              class="load-video-btn"
-              ${this.playerReady ? '' : 'disabled'}
-            >
-              <i class="fas fa-play"></i>
-              Play Now
-            </button>
-          </div>
-        `;
-        
-        // Insert before transport controls
-        const transportControls = this.element.querySelector('.transport-controls');
-        if (transportControls) {
-          transportControls.parentNode?.insertBefore(urlInputSection, transportControls);
-        }
-        
-        // Attach event listeners
-        const urlInput = urlInputSection.querySelector('.youtube-url-input');
-        const addToQueueBtn = urlInputSection.querySelector('.add-to-queue-btn');
-        const loadBtn = urlInputSection.querySelector('.load-video-btn');
-        
-        urlInput?.addEventListener('keypress', this._onUrlInputKeypress.bind(this));
-        addToQueueBtn?.addEventListener('click', this._onAddToQueueClick.bind(this));
-        loadBtn?.addEventListener('click', this._onLoadVideoClick.bind(this));
-      }
-      
-      // Update input and button state
-      const urlInput = urlInputSection.querySelector('.youtube-url-input') as HTMLInputElement;
-      const addToQueueBtn = urlInputSection.querySelector('.add-to-queue-btn') as HTMLButtonElement;
-      const loadBtn = urlInputSection.querySelector('.load-video-btn') as HTMLButtonElement;
-      
-      if (urlInput) {
-        urlInput.disabled = !this.playerReady;
-      }
-      if (addToQueueBtn) {
-        addToQueueBtn.disabled = !this.playerReady;
-      }
-      if (loadBtn) {
-        loadBtn.disabled = !this.playerReady;
-      }
-      
+      urlInputSection.classList.remove('non-dj-disabled');
     } else {
-      // Remove URL input section for non-DJ users
-      if (urlInputSection) {
-        console.log('🎵 YouTube DJ | Removing URL input section for non-DJ user');
-        urlInputSection.remove();
-      }
+      urlInputSection.classList.add('non-dj-disabled');
+    }
+    
+    // Update input and button state
+    const urlInput = urlInputSection.querySelector('.youtube-url-input') as HTMLInputElement;
+    const addToQueueBtn = urlInputSection.querySelector('.add-to-queue-btn') as HTMLButtonElement;
+    const loadBtn = urlInputSection.querySelector('.load-video-btn') as HTMLButtonElement;
+    
+    if (urlInput) {
+      urlInput.disabled = !this.isDJ || !this.playerReady;
+      urlInput.placeholder = this.isDJ 
+        ? 'Paste YouTube URL or video ID...' 
+        : 'Only the DJ can add videos';
+    }
+    
+    if (addToQueueBtn) {
+      addToQueueBtn.disabled = !this.isDJ || !this.playerReady;
+    }
+    
+    if (loadBtn) {
+      loadBtn.disabled = !this.isDJ || !this.playerReady;
+    }
+    
+    // Ensure event listeners are attached
+    if (this.isDJ) {
+      const urlInput = urlInputSection.querySelector('.youtube-url-input');
+      const addToQueueBtn = urlInputSection.querySelector('.add-to-queue-btn');
+      const loadBtn = urlInputSection.querySelector('.load-video-btn');
+      
+      // Remove existing listeners to avoid duplicates
+      urlInput?.removeEventListener('keypress', this._onUrlInputKeypress.bind(this));
+      addToQueueBtn?.removeEventListener('click', this._onAddToQueueClick.bind(this));
+      loadBtn?.removeEventListener('click', this._onLoadVideoClick.bind(this));
+      
+      // Add fresh listeners
+      urlInput?.addEventListener('keypress', this._onUrlInputKeypress.bind(this));
+      addToQueueBtn?.addEventListener('click', this._onAddToQueueClick.bind(this));
+      loadBtn?.addEventListener('click', this._onLoadVideoClick.bind(this));
     }
   }
 
@@ -3290,11 +3317,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _updateDJControls(): void {
     const djControlsContainer = this.element.querySelector('.dj-controls');
     if (!djControlsContainer) {
-      console.log('🎵 YouTube DJ | DJ controls container not found, skipping update');
+      logger.debug('🎵 YouTube DJ | DJ controls container not found, skipping update');
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Updating DJ controls - isDJ: ${this.isDJ}`);
+    logger.debug(`🎵 YouTube DJ | Updating DJ controls - isDJ: ${this.isDJ}`);
     
     djControlsContainer.innerHTML = '';
     
@@ -3401,12 +3428,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Check if queue section already exists
     let queueSection = this.element.querySelector('.queue-section');
     if (queueSection) {
-      console.log('🎵 YouTube DJ | Queue section already exists');
+      logger.debug('🎵 YouTube DJ | Queue section already exists');
       this._updateQueueUI();
       return;
     }
     
-    console.log('🎵 YouTube DJ | Creating queue section dynamically');
+    logger.debug('🎵 YouTube DJ | Creating queue section dynamically');
     
     // Create the queue section
     queueSection = document.createElement('div');
@@ -3469,7 +3496,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       });
     }
     
-    console.log('🎵 YouTube DJ | Queue section created and attached');
+    logger.debug('🎵 YouTube DJ | Queue section created and attached');
   }
 
   /**
@@ -3485,7 +3512,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Check if session members section exists
     let sessionMembersSection = this.element.querySelector('.session-members');
     if (!sessionMembersSection) {
-      console.log('🎵 YouTube DJ | Creating session members section manually');
+      logger.debug('🎵 YouTube DJ | Creating session members section manually');
       
       // Create the session members section
       sessionMembersSection = document.createElement('div');
@@ -3524,22 +3551,22 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    */
   private _broadcastMessage(message: YouTubeDJMessage): void {
     if (this.isConnected) {
-      console.log('🎵 YouTube DJ | Broadcasting message:', message);
-      console.log(`🎵 YouTube DJ | Socket available: ${!!game.socket}`);
-      console.log(`🎵 YouTube DJ | Channel: ${YouTubeDJApp.SOCKET_NAME}`);
+      logger.debug('🎵 YouTube DJ | Broadcasting message:', message);
+      logger.debug(`🎵 YouTube DJ | Socket available: ${!!game.socket}`);
+      logger.debug(`🎵 YouTube DJ | Channel: ${YouTubeDJApp.SOCKET_NAME}`);
       
       // Try both our custom channel AND a fallback method
       const result = game.socket?.emit(YouTubeDJApp.SOCKET_NAME, message);
-      console.log(`🎵 YouTube DJ | Emit result:`, result);
+      logger.debug(`🎵 YouTube DJ | Emit result:`, result);
       
       // FALLBACK: Use FoundryVTT's system socket as backup
-      console.log('🎵 YouTube DJ | Also sending via fallback method...');
+      logger.debug('🎵 YouTube DJ | Also sending via fallback method...');
       game.socket?.emit('module.bardic-inspiration.fallback', {
         bardic_dj_message: message,
         timestamp: Date.now()
       });
     } else {
-      console.warn('🎵 YouTube DJ | Cannot broadcast - not connected');
+      logger.warn('🎵 YouTube DJ | Cannot broadcast - not connected');
     }
   }
 
@@ -3554,11 +3581,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       if (!this.isConnected) {
         if (attempts < maxRetries) {
-          console.log(`🎵 YouTube DJ | Not connected, retry ${attempts}/${maxRetries} in 1s`);
+          logger.debug(`🎵 YouTube DJ | Not connected, retry ${attempts}/${maxRetries} in 1s`);
           setTimeout(attemptBroadcast, 1000);
           return;
         } else {
-          console.error('🎵 YouTube DJ | Failed to broadcast after retries - not connected');
+          logger.error('🎵 YouTube DJ | Failed to broadcast after retries - not connected');
           ui.notifications?.warn('Message may not have reached other clients (connection issue)');
           return;
         }
@@ -3566,15 +3593,15 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       try {
         this._broadcastMessage(message);
-        console.log(`🎵 YouTube DJ | Message broadcast successful on attempt ${attempts}`);
+        logger.debug(`🎵 YouTube DJ | Message broadcast successful on attempt ${attempts}`);
       } catch (error) {
-        console.error(`🎵 YouTube DJ | Broadcast attempt ${attempts} failed:`, error);
+        logger.error(`🎵 YouTube DJ | Broadcast attempt ${attempts} failed:`, error);
         
         if (attempts < maxRetries) {
-          console.log(`🎵 YouTube DJ | Retrying broadcast in 1s...`);
+          logger.debug(`🎵 YouTube DJ | Retrying broadcast in 1s...`);
           setTimeout(attemptBroadcast, 1000);
         } else {
-          console.error('🎵 YouTube DJ | All broadcast attempts failed');
+          logger.error('🎵 YouTube DJ | All broadcast attempts failed');
           ui.notifications?.warn('Message may not have reached other clients');
         }
       }
@@ -3593,11 +3620,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this.isConnected = game.socket?.connected || false;
       
       if (wasConnected && !this.isConnected) {
-        console.warn('🎵 YouTube DJ | Connection lost');
+        logger.warn('🎵 YouTube DJ | Connection lost');
         ui.notifications?.warn('Connection lost - attempting to reconnect...');
         this._onConnectionLost();
       } else if (!wasConnected && this.isConnected) {
-        console.log('🎵 YouTube DJ | Connection restored');
+        logger.debug('🎵 YouTube DJ | Connection restored');
         ui.notifications?.info('Connection restored');
         this._onConnectionRestored();
       }
@@ -3609,13 +3636,13 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Also listen to FoundryVTT socket events if available
     if (game.socket) {
       game.socket.on('connect', () => {
-        console.log('🎵 YouTube DJ | Socket connected');
+        logger.debug('🎵 YouTube DJ | Socket connected');
         this.isConnected = true;
         this._onConnectionRestored();
       });
       
       game.socket.on('disconnect', () => {
-        console.log('🎵 YouTube DJ | Socket disconnected');
+        logger.debug('🎵 YouTube DJ | Socket disconnected');
         this.isConnected = false;
         this._onConnectionLost();
       });
@@ -3653,7 +3680,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     
     // Request state sync to catch up on any missed updates
     setTimeout(() => {
-      console.log('🎵 YouTube DJ | Requesting state sync after reconnection');
+      logger.debug('🎵 YouTube DJ | Requesting state sync after reconnection');
       this._requestSessionState();
     }, 1000);
     
@@ -3689,12 +3716,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
             // Update UI
             this._updateQueueUI();
             
-            console.log(`🎵 YouTube DJ | Fetched title for ${videoId}: ${data.title}`);
+            logger.debug(`🎵 YouTube DJ | Fetched title for ${videoId}: ${data.title}`);
           }
         }
       }
     } catch (error) {
-      console.warn(`🎵 YouTube DJ | Failed to fetch title for ${videoId}:`, error);
+      logger.warn(`🎵 YouTube DJ | Failed to fetch title for ${videoId}:`, error);
       // Don't show error to user - this is optional enhancement
     }
   }
@@ -3710,7 +3737,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       const response = await fetch(oembedUrl);
       return response.ok;
     } catch (error) {
-      console.warn(`🎵 YouTube DJ | Failed to validate video ${videoId}:`, error);
+      logger.warn(`🎵 YouTube DJ | Failed to validate video ${videoId}:`, error);
       return false; // Assume invalid if we can't check
     }
   }
@@ -3719,7 +3746,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * MVP-U5: Handle YouTube API errors gracefully
    */
   private _handleYouTubeAPIError(error: any, videoId?: string): void {
-    console.error('🎵 YouTube DJ | YouTube API Error:', error);
+    logger.error('🎵 YouTube DJ | YouTube API Error:', error);
     
     let userMessage = 'YouTube player error occurred';
     
@@ -3752,7 +3779,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     
     // If this was a queue video, try to skip to next
     if (this.isDJ && this.queueState.items.length > 0) {
-      console.log('🎵 YouTube DJ | Attempting to skip to next video due to error');
+      logger.debug('🎵 YouTube DJ | Attempting to skip to next video due to error');
       setTimeout(() => {
         this._playNextInQueue();
       }, 2000);
@@ -3846,7 +3873,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       return;
     }
     
-    console.log(`🎵 YouTube DJ | Handing off DJ role to ${targetUser.name}`);
+    logger.debug(`🎵 YouTube DJ | Handing off DJ role to ${targetUser.name}`);
     
     // Update local state
     this.isDJ = false;
@@ -3973,7 +4000,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _moveQueueItemUp(index: number): void {
     if (index <= 0 || index >= this.queueState.items.length) return;
     
-    console.log(`🎵 YouTube DJ | Moving queue item up: ${index} -> ${index - 1}`);
+    logger.debug(`🎵 YouTube DJ | Moving queue item up: ${index} -> ${index - 1}`);
     
     // Create a copy of the queue
     const newQueue = [...this.queueState.items];
@@ -3985,11 +4012,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (this.queueState.currentIndex === index) {
       // Moving the current video up
       this.queueState.currentIndex = index - 1;
-      console.log(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (moved current video up)`);
+      logger.debug(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (moved current video up)`);
     } else if (this.queueState.currentIndex === index - 1) {
       // Moving something up that displaces the current video down
       this.queueState.currentIndex = index;
-      console.log(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (current video displaced down)`);
+      logger.debug(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (current video displaced down)`);
     }
     
     // Update the queue state
@@ -4018,7 +4045,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _moveQueueItemDown(index: number): void {
     if (index < 0 || index >= this.queueState.items.length - 1) return;
     
-    console.log(`🎵 YouTube DJ | Moving queue item down: ${index} -> ${index + 1}`);
+    logger.debug(`🎵 YouTube DJ | Moving queue item down: ${index} -> ${index + 1}`);
     
     // Create a copy of the queue
     const newQueue = [...this.queueState.items];
@@ -4030,11 +4057,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (this.queueState.currentIndex === index) {
       // Moving the current video down
       this.queueState.currentIndex = index + 1;
-      console.log(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (moved current video down)`);
+      logger.debug(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (moved current video down)`);
     } else if (this.queueState.currentIndex === index + 1) {
       // Moving something down that displaces the current video up
       this.queueState.currentIndex = index;
-      console.log(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (current video displaced up)`);
+      logger.debug(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (current video displaced up)`);
     }
     
     // Update the queue state
