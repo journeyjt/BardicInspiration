@@ -18,7 +18,7 @@
     "foundryvtt",
     "module"
   ],
-  "author": "Your Name",
+  "author": "Jeff Journey",
   "license": "MIT",
   "devDependencies": {
     "@league-of-foundry-developers/foundry-vtt-types": "^12.331.0",
