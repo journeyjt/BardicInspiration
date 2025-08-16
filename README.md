@@ -1,167 +1,129 @@
 # Bardic Inspiration
 
-A Foundry VTT module.
+![FoundryVTT Version](https://img.shields.io/badge/FoundryVTT-v13-green)
+![Module Version](https://img.shields.io/badge/version-0.8.33-blue)
+![License](https://img.shields.io/badge/license-MIT-yellow)
 
-## Development Setup
+A synchronized YouTube music player module for FoundryVTT that lets Game Masters and players share a musical experience during tabletop sessions. Features DJ controls, queue management, and real-time synchronization across all connected players.
 
-### Prerequisites
+## Features
 
-- Docker Desktop
-- FoundryVTT account with valid license
+### Synchronized Playback
+- Real-time YouTube video synchronization across all players
+- Automatic drift correction ensures everyone stays in sync
+- Late-joiner support - new players automatically sync to current playback
 
-### Development Environment
+### DJ Management System
+- Single DJ controls playback for all users
+- DJ role can be claimed, released, or handed off
+- Request system for players to ask for DJ privileges
+- GM override capabilities for ultimate control
 
-This module uses **Vite** for modern bundling, **TypeScript** for type safety, and **Hot Module Replacement** for fast development.
+### Queue Management
+- Add unlimited YouTube videos to the queue
+- Reorder queue items with up/down controls
+- Remove videos from queue
+- Automatic loop - restarts from beginning when queue ends
+- Queue persists across sessions
 
-1. **Install Dependencies:**
-   ```bash
-   npm install
+### Modern UI
+- Clean, modern blue-themed interface
+- Responsive design that works at any window size
+- Visual indicators for DJ status and current playing video
+- Intuitive controls with clear visual feedback
+
+## Installation
+
+### Method 1: Manifest URL (Recommended)
+1. In FoundryVTT, navigate to **Add-on Modules**
+2. Click **Install Module**
+3. Paste this manifest URL:
    ```
-
-2. **Set up Environment:**
-   ```bash
-   cp .env.example .env
-   # Fill in your FoundryVTT credentials
+   https://github.com/journeyjt/BardicInspiration/releases/latest/download/module.json
    ```
+4. Click **Install**
 
-3. **Start Development:**
-   ```bash
-   npm run dev:vite        # Start FoundryVTT + Vite dev server with HMR
-   ```
+### Method 2: Manual Installation
+1. Download the latest release from [Releases](https://github.com/journeyjt/BardicInspiration/releases)
+2. Extract the zip file to your FoundryVTT modules folder:
+   - Windows: `%appdata%/FoundryVTT/Data/modules/`
+   - macOS: `~/Library/Application Support/FoundryVTT/Data/modules/`
+   - Linux: `~/.local/share/FoundryVTT/Data/modules/`
+3. Restart FoundryVTT
 
-4. **Access Development Environment:**
-   - **FoundryVTT:** `http://localhost:30000` (main application)
-   - **Vite Dev Server:** `http://localhost:30001` (with HMR proxy)
+## Usage
 
-### Development Workflow
+1. **Enable the Module**: In your world settings, enable "Bardic Inspiration"
 
-#### Modern Development (Recommended)
+2. **Open the YouTube DJ**: Click the music note icon in the scene controls toolbar
+
+3. **Join the Session**: Click "Join Session" to connect to synchronized playback
+
+4. **Become the DJ**: 
+   - Click "Become DJ" to take control
+   - Only the DJ can control playback and manage the queue
+
+5. **Add Videos**: 
+   - Paste YouTube URLs in the input field
+   - Click "Add to Queue" or press Enter
+
+6. **Control Playback**: 
+   - Use play/pause/next buttons (DJ only)
+   - Adjust volume locally
+   - Mute/unmute as needed
+
+## For Developers
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup and contribution guidelines.
+
+### Quick Start
 ```bash
-npm run dev:vite         # Start FoundryVTT + Vite with HMR
+npm install
+npm run dev:serve  # Start development server with HMR
 ```
-- **Hot Module Replacement:** Changes appear instantly without page refresh
-- **TypeScript compilation:** Real-time type checking and compilation
-- **CSS processing:** Modern CSS with auto-prefixing
-- **Source maps:** Debug with original source files
 
-#### Traditional Development
+### Building
 ```bash
-npm run dev              # Start FoundryVTT container only
-npm run build            # Build for testing
+npm run build  # Create production build and module.zip
 ```
 
-#### File Structure
-```
-src/
-├── main.ts              # Main module entry (TypeScript)
-├── lib/                 # Utility libraries
-│   └── lib-wrapper-utils.ts
-└── styles/
-    └── main.css         # Processed by Vite
+## Requirements
 
-dist/                    # Built files (generated)
-├── main.js              # Compiled bundle
-└── main.css             # Processed styles
-```
+- FoundryVTT v12 or higher (tested with v13.347)
+- Modern web browser with YouTube iframe API support
+- Active internet connection for YouTube playback
 
-#### Making Changes
-1. **TypeScript/JavaScript:** Edit files in `src/` - changes apply instantly with HMR
-2. **CSS:** Edit `src/styles/main.css` - styles update live
-3. **Module Config:** Edit `module.json` - restart container to see changes
+## Compatibility
 
-#### Commands
-```bash
-npm run dev:vite         # Development with HMR
-npm run vite:build       # Build for production
-npm run validate         # Validate module structure
-npm run build            # Validate + build + create zip
-```
+This module has been tested with:
+- FoundryVTT v13.347
+- Chrome, Firefox, Edge browsers
+- Windows, macOS, Linux operating systems
 
-### TypeScript Support
+## Support
 
-- **FoundryVTT Types:** Full type definitions for FoundryVTT API
-- **Modern JavaScript:** ES2022 with full module support
-- **Type Safety:** Catch errors at compile-time
-- **IntelliSense:** Rich IDE support with autocompletion
+- **Bug Reports**: [Create an issue](https://github.com/journeyjt/BardicInspiration/issues/new?template=bug_report.md)
+- **Feature Requests**: [Submit a feature request](https://github.com/journeyjt/BardicInspiration/issues/new?template=feature_request.md)
+- **Discussions**: [Join the conversation](https://github.com/journeyjt/BardicInspiration/discussions)
 
-### Development Features
+## Contributing
 
-- **🔥 Hot Module Replacement:** Instant updates without page refresh
-- **📝 TypeScript:** Full type safety and modern JavaScript features  
-- **🎨 Modern CSS:** CSS processing with Vite
-- **🔍 Source Maps:** Debug with original source files
-- **⚡ Fast Builds:** Optimized bundling with Vite
-- **🛠️ libWrapper Integration:** Type-safe monkey-patching utilities
-- **🧪 Developer Mode Support:** Enhanced debugging capabilities
-
-### Recommended Development Modules
-
-Install these modules in your development environment:
-- **Developer Mode** - Enables debug flags and console logging
-- **libWrapper** - Safe monkey-patching for core function modifications
-- **Find the Culprit!** - Debugging tool to identify problematic modules
-
-### Project Structure
-
-```
-├── .github/workflows/    # GitHub Actions for automated releases
-├── scripts/             # JavaScript module files
-├── styles/              # CSS stylesheets
-├── languages/           # Localization files
-├── templates/           # Handlebars templates
-├── docker-compose.yml   # Docker development environment
-├── module.json          # Module manifest
-└── README.md
-```
-
-## Release and Deployment
-
-### Enhanced Release Workflow
-
-This module uses an automated release system with comprehensive validation:
-
-#### Pre-Release Validation
-Before creating a release, validate your module locally:
-```bash
-npm run validate         # Validate module structure and manifest
-npm run build           # Validate and create module.zip
-```
-
-#### Creating a Release
-1. **Prepare Your Module**
-   - Ensure all changes are committed
-   - Update version in `module.json`
-   - Run `npm run validate` to check for issues
-
-2. **Create GitHub Release**
-   - Go to your GitHub repository
-   - Click "Releases" → "Create a new release"
-   - Tag version should match `module.json` version (e.g., `0.1.0`)
-   - Add release title and description
-   - Publish the release
-
-3. **Automatic Processing**
-   The GitHub Action will automatically:
-   - ✅ Validate module manifest and file structure
-   - ✅ Check version consistency between release tag and manifest
-   - ✅ Generate enhanced changelog from git commits
-   - ✅ Update manifest URLs for release
-   - ✅ Create properly structured module.zip
-   - ✅ Attach assets and update release notes
-
-#### Release Features
-- **Comprehensive Validation**: Checks manifest syntax, required fields, file existence
-- **Automatic Changelog**: Generated from git commits since last release
-- **Version Consistency**: Ensures release tag matches manifest version
-- **Enhanced Release Notes**: Includes installation instructions and compatibility info
-- **Proper Asset URLs**: Automatically updates manifest and download URLs
-
-#### Installation for Users
-Users can install your module using:
-```
-https://github.com/yourusername/BardicInspiration/releases/latest/download/module.json
-```
+We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
 ## License
 
-MIT
+This module is licensed under the [MIT License](LICENSE).
+
+## Acknowledgments
+
+- The FoundryVTT community for their invaluable feedback and support
+- YouTube for providing the iframe API
+- All contributors who have helped improve this module
+
+## Changelog
+
+See [Releases](https://github.com/journeyjt/BardicInspiration/releases) for a detailed changelog.
+
+---
+
+**Note**: This module requires an active internet connection and is subject to YouTube's terms of service. Please ensure you have the appropriate rights to play any content in your sessions.

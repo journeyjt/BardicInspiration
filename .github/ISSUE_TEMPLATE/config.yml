@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: FoundryVTT Discord
+    url: https://discord.gg/foundryvtt
+    about: For general FoundryVTT questions and support
+  - name: Module Discussion
+    url: https://github.com/journeyjt/BardicInspiration/discussions
+    about: For general discussions about the module
