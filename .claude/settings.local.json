@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(docker compose:*)",
+      "Bash(npm run build:*)",
+      "WebFetch(domain:foundryvtt.com)",
+      "Bash(node:*)",
+      "Bash(rm:*)",
+      "Bash(docker exec:*)",
+      "Bash(docker cp:*)",
+      "Bash(timeout 15 docker logs -f bardic-inspiration-dev)",
+      "Bash(npm run vite:dev:*)",
+      "Bash(curl:*)",
+      "Bash(npm run dev:*)",
+      "Bash(npm run vite:build:*)",
+      "Bash(timeout 10 docker logs -f bardic-inspiration-dev)",
+      "Bash(npm run sync:*)",
+      "Bash(docker system prune:*)",
+      "Bash(powershell:*)",
+      "Bash(docker restart:*)",
+      "Bash(grep:*)",
+      "WebFetch(domain:foundryvtt.wiki)",
+      "WebSearch"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "acceptEdits"
+  }
+}

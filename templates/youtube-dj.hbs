@@ -44,10 +44,26 @@
           <i class="fas fa-crown"></i>
           Release DJ
         </button>
+        {{#if canHandoffDJ}}
+        <button type="button" class="handoff-dj-btn">
+          <i class="fas fa-exchange-alt"></i>
+          Hand Off
+        </button>
+        {{/if}}
         {{else}}
         <button type="button" class="claim-dj-btn">
           <i class="fas fa-microphone"></i>
           Become DJ
+        </button>
+        <button type="button" class="request-dj-btn">
+          <i class="fas fa-hand-paper"></i>
+          Request DJ
+        </button>
+        {{/if}}
+        {{#if isGM}}
+        <button type="button" class="gm-override-btn">
+          <i class="fas fa-gavel"></i>
+          GM Override
         </button>
         {{/if}}
       </div>
@@ -68,9 +84,38 @@
       {{/each}}
     </div>
   </div>
+  
+  <!-- MVP-U6: DJ Requests Section (for current DJ only) -->
+  {{#if isDJ}}
+  {{#if hasDJRequests}}
+  <div class="dj-requests">
+    <div class="requests-header">
+      <h3>
+        <i class="fas fa-hand-paper"></i>
+        DJ Requests ({{djRequests.length}})
+      </h3>
+    </div>
+    <div class="dj-requests-list">
+      {{#each djRequests}}
+      <div class="dj-request-item">
+        <span class="requester-name">{{userName}}</span>
+        <div class="request-actions">
+          <button class="approve-dj-request-btn" data-requester-id="{{userId}}">
+            <i class="fas fa-check"></i> Approve
+          </button>
+          <button class="deny-dj-request-btn" data-requester-id="{{userId}}">
+            <i class="fas fa-times"></i> Deny
+          </button>
+        </div>
+      </div>
+      {{/each}}
+    </div>
+  </div>
+  {{/if}}
   {{/if}}
 
   <!-- YouTube Player Container -->
+  {{#if hasJoinedSession}}
   <div class="player-section">
     <div class="player-info">
       <h3>{{currentVideoTitle}}</h3>
@@ -83,106 +128,152 @@
       <!-- YouTube player will be inserted here -->
     </div>
   </div>
-
-  <!-- URL Input Section (DJ only) -->
-  {{#if isDJ}}
-  <div class="url-input-section">
-    <div class="input-group">
-      <input 
-        type="text" 
-        class="youtube-url-input" 
-        placeholder="Paste YouTube URL or video ID..."
-        {{#unless isPlayerReady}}disabled{{/unless}}
-      >
-      <button 
-        type="button" 
-        class="load-video-btn"
-        {{#unless isPlayerReady}}disabled{{/unless}}
-      >
-        <i class="fas fa-plus"></i>
-        Load Video
-      </button>
-    </div>
-  </div>
   {{/if}}
 
-  <!-- Transport Controls -->
-  <div class="transport-controls">
-    {{#if isDJ}}
-      <button 
-        type="button" 
-        class="play-btn transport-btn"
-        {{#unless isPlayerReady}}disabled{{/unless}}
-      >
-        <i class="fas fa-play"></i>
-        Play
-      </button>
-      <button 
-        type="button" 
-        class="pause-btn transport-btn"
-      >
-        <i class="fas fa-pause"></i>
-        Pause
-      </button>
-    {{else}}
-      <div class="listener-info">
-        <i class="fas fa-info-circle"></i>
-        <p>Playback is controlled by the DJ</p>
+  <!-- Transport Controls & Queue Controls -->
+  {{#if hasJoinedSession}}
+  <div class="player-controls-section">
+    <div class="controls-header">
+      <h3>
+        <i class="fas fa-music"></i>
+        Player Controls
+      </h3>
+    </div>
+    
+    <!-- Transport Controls -->
+    <div class="transport-controls">
+      {{#if isDJ}}
+        <button 
+          type="button" 
+          class="play-btn transport-btn"
+          {{#unless isPlayerReady}}disabled{{/unless}}
+        >
+          <i class="fas fa-play"></i>
+          Play
+        </button>
+        <button 
+          type="button" 
+          class="pause-btn transport-btn"
+        >
+          <i class="fas fa-pause"></i>
+          Pause
+        </button>
+        <button 
+          type="button" 
+          class="next-btn transport-btn"
+          {{#unless hasQueue}}disabled{{/unless}}
+        >
+          <i class="fas fa-step-forward"></i>
+          Next
+        </button>
+      {{else}}
+        <div class="listener-info">
+          <i class="fas fa-info-circle"></i>
+          <p>Playback is controlled by the DJ</p>
+        </div>
+      {{/if}}
+      
+      <!-- MVP-U6: Mute Control -->
+      <div class="mute-control">
+        <button type="button" class="mute-player-btn" title="{{#if isPlayerMuted}}Unmute Player{{else}}Mute Player{{/if}}">
+          <i class="fas {{#if isPlayerMuted}}fa-volume-mute{{else}}fa-volume-up{{/if}}"></i>
+        </button>
       </div>
+    </div>
+    
+    <!-- Seek Bar (DJ only) -->
+    {{#if isDJ}}
+    <div class="seek-section">
+      <div class="seek-container">
+        <span class="current-time">0:00</span>
+        <input 
+          type="range" 
+          class="seek-bar" 
+          min="0" 
+          max="100" 
+          value="0"
+          {{#unless isPlayerReady}}disabled{{/unless}}
+        >
+        <span class="total-time">0:00</span>
+      </div>
+    </div>
+    
+    <!-- URL Input Section -->
+    <div class="url-input-section">
+      <div class="input-group">
+        <input 
+          type="text" 
+          class="youtube-url-input" 
+          placeholder="Paste YouTube URL or video ID..."
+          {{#unless isPlayerReady}}disabled{{/unless}}
+        >
+        <button 
+          type="button" 
+          class="add-to-queue-btn"
+          {{#unless isPlayerReady}}disabled{{/unless}}
+        >
+          <i class="fas fa-plus"></i>
+          Add to Queue
+        </button>
+        <button 
+          type="button" 
+          class="load-video-btn"
+          {{#unless isPlayerReady}}disabled{{/unless}}
+        >
+          <i class="fas fa-play"></i>
+          Play Now
+        </button>
+      </div>
+    </div>
     {{/if}}
   </div>
 
-  <!-- Seek Bar (DJ only) -->
-  {{#if isDJ}}
-  <div class="seek-section">
-    <div class="seek-container">
-      <span class="current-time">0:00</span>
-      <input 
-        type="range" 
-        class="seek-bar" 
-        min="0" 
-        max="100" 
-        value="0"
-        {{#unless isPlayerReady}}disabled{{/unless}}
-      >
-      <span class="total-time">0:00</span>
+  <!-- MVP-U4: Queue Section -->
+  <div class="queue-section">
+    <div class="queue-header">
+      <h3>
+        <i class="fas fa-list"></i>
+        Queue ({{queue.length}} videos)
+      </h3>
+    </div>
+    
+    <div class="queue-list">
+      {{#each queue}}
+      <div class="queue-item" data-index="{{@index}}" data-queue-id="{{id}}">
+        <div class="queue-item-info">
+          <span class="queue-item-title">{{#if title}}{{title}}{{else}}{{videoId}}{{/if}}</span>
+          <span class="queue-item-meta">Added by {{addedBy}}</span>
+        </div>
+        {{#if ../isDJ}}
+        <div class="queue-item-controls">
+          <button type="button" class="move-up-btn" data-index="{{@index}}" title="Move up" {{#if @first}}disabled{{/if}}>
+            <i class="fas fa-chevron-up"></i>
+          </button>
+          <button type="button" class="move-down-btn" data-index="{{@index}}" title="Move down" {{#if @last}}disabled{{/if}}>
+            <i class="fas fa-chevron-down"></i>
+          </button>
+          <button type="button" class="remove-queue-btn" data-queue-id="{{id}}" title="Remove">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        {{/if}}
+      </div>
+      {{else}}
+      <div class="queue-empty">
+        <i class="fas fa-music"></i>
+        <p>No videos in queue</p>
+        {{#if ../isDJ}}
+        <p>Add videos using the controls above</p>
+        {{/if}}
+      </div>
+      {{/each}}
     </div>
   </div>
   {{/if}}
 
-  <!-- Player State Info -->
-  <div class="player-info-section">
-    <div class="info-grid">
-      <div class="info-item">
-        <strong>Player Ready:</strong>
-        <span class="{{#if isPlayerReady}}status-active{{else}}status-inactive{{/if}}">
-          {{#if isPlayerReady}}
-            <i class="fas fa-check"></i> Ready
-          {{else}}
-            <i class="fas fa-clock"></i> Initializing...
-          {{/if}}
-        </span>
-      </div>
-      
-      <div class="info-item">
-        <strong>Autoplay:</strong>
-        <span class="{{#if hasAutoplayConsent}}status-active{{else}}status-inactive{{/if}}">
-          {{#if hasAutoplayConsent}}
-            <i class="fas fa-check"></i> Enabled
-          {{else}}
-            <i class="fas fa-times"></i> Disabled
-          {{/if}}
-        </span>
-      </div>
-      
-      <div class="info-item">
-        <strong>Mode:</strong>
-        <span class="status-info">
-          <i class="fas fa-user"></i> Single Client (MVP)
-        </span>
-      </div>
-    </div>
-  </div>
+
+
+  {{/if}}
 
   <!-- Actions -->
   <div class="youtube-dj-actions">
@@ -193,8 +284,8 @@
     </button>
     {{else}}
     <button type="button" class="recreate-player-btn">
-      <i class="fas fa-play-circle"></i>
-      Join Session
+      <i class="fas fa-sync-alt"></i>
+      Refresh
     </button>
     {{/if}}
     <button type="button" class="close-btn">

@@ -1,6 +1,6 @@
 /**
  * YouTube DJ Application - Synced YouTube Player for FoundryVTT
- * MVP-U3: Multi-Client Sync with Heartbeat System
+ * MVP-U6: DJ Management & Permissions
  */
 
 interface YouTubeDJData {
@@ -14,10 +14,20 @@ interface YouTubeDJData {
   isConnected: boolean;
   hasJoinedSession: boolean;
   sessionMembers: Array<{id: string, name: string, isDJ: boolean}>;
+  // MVP-U4: Queue data
+  queue: VideoItem[];
+  currentQueueIndex: number;
+  hasQueue: boolean;
+  // MVP-U6: DJ Management & Permissions
+  isGM: boolean;
+  djRequests: Array<{userId: string, userName: string, timestamp: number}>;
+  hasDJRequests: boolean;
+  isPlayerMuted: boolean;
+  canHandoffDJ: boolean;
 }
 
 interface YouTubeDJMessage {
-  type: 'PLAY' | 'PAUSE' | 'SEEK' | 'LOAD' | 'DJ_CLAIM' | 'DJ_RELEASE' | 'USER_JOIN' | 'USER_LEAVE' | 'STATE_REQUEST' | 'STATE_RESPONSE' | 'HEARTBEAT';
+  type: 'PLAY' | 'PAUSE' | 'SEEK' | 'LOAD' | 'DJ_CLAIM' | 'DJ_RELEASE' | 'DJ_REQUEST' | 'DJ_HANDOFF' | 'GM_OVERRIDE' | 'USER_JOIN' | 'USER_LEAVE' | 'STATE_REQUEST' | 'STATE_RESPONSE' | 'STATE_SAVE_REQUEST' | 'HEARTBEAT' | 'QUEUE_ADD' | 'QUEUE_REMOVE' | 'QUEUE_NEXT' | 'QUEUE_UPDATE';
   data?: any;
   userId: string;
   timestamp: number;
@@ -29,6 +39,23 @@ interface HeartbeatData {
   isPlaying: boolean;
   duration: number;
   serverTimestamp: number;
+}
+
+// MVP-U4: Queue Data Structures
+interface VideoItem {
+  id: string;
+  videoId: string;
+  title?: string;
+  thumbnail?: string;
+  addedBy: string;
+  addedAt: number;
+}
+
+interface QueueState {
+  items: VideoItem[];
+  currentIndex: number;
+  mode: 'single-dj' | 'group-dj';
+  djUserId: string | null;
 }
 
 export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.api.ApplicationV2) {
@@ -57,6 +84,19 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   // World-level state management
   private static readonly WORLD_DJ_SETTING = 'youtubeDJ.currentDJ';
   private static readonly WORLD_MEMBERS_SETTING = 'youtubeDJ.sessionMembers';
+  private static readonly WORLD_QUEUE_SETTING = 'youtubeDJ.queueState';
+  
+  // MVP-U6: DJ Management & Permissions
+  private djRequests: Array<{userId: string, userName: string, timestamp: number}> = [];
+  private isPlayerMuted: boolean = false;
+  
+  // MVP-U4: Queue state
+  private queueState: QueueState = {
+    items: [],
+    currentIndex: -1,
+    mode: 'single-dj',
+    djUserId: null
+  };
   
   // Configuration for development vs production
   private get isDevelopment(): boolean {
@@ -100,9 +140,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
 
   /** @override */
   async _prepareContext(options: any): Promise<YouTubeDJData> {
-    return {
+    const context = {
       currentVideoId: null,
-      currentVideoTitle: 'No video loaded',
+      currentVideoTitle: this.queueState.items.length > 0 && this.queueState.currentIndex >= 0 
+        ? this.queueState.items[this.queueState.currentIndex]?.title || 'No title'
+        : 'No video loaded',
       isPlayerReady: this.playerReady,
       hasAutoplayConsent: this.autoplayConsent,
       isDJ: this.isDJ,
@@ -110,8 +152,28 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       djUser: this.djUserId ? game.users?.get(this.djUserId)?.name || 'Unknown' : null,
       isConnected: this.isConnected,
       hasJoinedSession: this.hasJoinedSession,
-      sessionMembers: this.sessionMembers
+      sessionMembers: this.sessionMembers,
+      // MVP-U4: Queue data
+      queue: this.queueState.items,
+      currentQueueIndex: this.queueState.currentIndex,
+      hasQueue: this.queueState.items.length > 0,
+      // MVP-U6: DJ Management & Permissions
+      isGM: game.user?.isGM || false,
+      djRequests: this.djRequests,
+      hasDJRequests: this.djRequests.length > 0,
+      isPlayerMuted: this.isPlayerMuted,
+      canHandoffDJ: this.isDJ && this.sessionMembers.length > 1
     };
+    
+    // Debug logging
+    console.log('🎵 YouTube DJ | Template context:', {
+      hasJoinedSession: context.hasJoinedSession,
+      isDJ: context.isDJ,
+      queueLength: context.queue.length,
+      hasQueue: context.hasQueue
+    });
+    
+    return context;
   }
   
   /** @override */
@@ -171,6 +233,8 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     // Event listeners
     html.querySelector('.youtube-url-input')?.addEventListener('keypress', this._onUrlInputKeypress.bind(this));
     html.querySelector('.load-video-btn')?.addEventListener('click', this._onLoadVideoClick.bind(this));
+    html.querySelector('.add-to-queue-btn')?.addEventListener('click', this._onAddToQueueClick.bind(this));
+    html.querySelector('.next-btn')?.addEventListener('click', this._onNextClick.bind(this));
     html.querySelector('.play-btn')?.addEventListener('click', this._onPlayClick.bind(this));
     html.querySelector('.pause-btn')?.addEventListener('click', this._onPauseClick.bind(this));
     html.querySelector('.join-session-btn')?.addEventListener('click', this._onJoinSessionClick.bind(this));
@@ -178,8 +242,35 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     html.querySelector('.claim-dj-btn')?.addEventListener('click', this._onClaimDJClick.bind(this));
     html.querySelector('.release-dj-btn')?.addEventListener('click', this._onReleaseDJClick.bind(this));
     html.querySelector('.close-btn')?.addEventListener('click', this._onCloseClick.bind(this));
+    
+    // MVP-U6: DJ Management & Permissions event listeners
+    html.querySelector('.request-dj-btn')?.addEventListener('click', this._onRequestDJClick.bind(this));
+    html.querySelector('.handoff-dj-btn')?.addEventListener('click', this._onHandoffDJClick.bind(this));
+    html.querySelector('.mute-player-btn')?.addEventListener('click', this._onMutePlayerClick.bind(this));
+    html.querySelector('.gm-override-btn')?.addEventListener('click', this._onGMOverrideClick.bind(this));
+    
+    // DJ request approval/deny buttons
+    html.querySelectorAll('.approve-dj-request-btn').forEach(btn => {
+      btn.addEventListener('click', this._onApproveDJRequestClick.bind(this));
+    });
+    html.querySelectorAll('.deny-dj-request-btn').forEach(btn => {
+      btn.addEventListener('click', this._onDenyDJRequestClick.bind(this));
+    });
     html.querySelector('.seek-bar')?.addEventListener('input', this._onSeekBarInput.bind(this));
     html.querySelector('.seek-bar')?.addEventListener('change', this._onSeekBarChange.bind(this));
+    
+    // MVP-U4: Queue management event listeners
+    html.querySelectorAll('.remove-queue-btn').forEach(btn => {
+      btn.addEventListener('click', this._onRemoveQueueClick.bind(this));
+    });
+    
+    // Queue reordering with up/down buttons
+    html.querySelectorAll('.move-up-btn').forEach(btn => {
+      btn.addEventListener('click', this._onMoveUpClick.bind(this));
+    });
+    html.querySelectorAll('.move-down-btn').forEach(btn => {
+      btn.addEventListener('click', this._onMoveDownClick.bind(this));
+    });
     
     // Initialize socket communication
     this._initializeSocket();
@@ -198,10 +289,41 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
 
     console.log('🎵 YouTube DJ | Using YouTube API with render protection');
     
-    const playerContainer = this.element.querySelector('#youtube-player-container');
+    let playerContainer = this.element.querySelector('#youtube-player-container');
     if (!playerContainer) {
-      console.warn('YouTube player container not found');
-      return;
+      console.warn('YouTube player container not found, creating dynamically...');
+      
+      // Create player section dynamically if it doesn't exist
+      const playerSection = document.createElement('div');
+      playerSection.className = 'player-section';
+      playerSection.innerHTML = `
+        <div class="player-info">
+          <h3>${this.currentVideoTitle || 'No video loaded'}</h3>
+          <div class="player-status-container">
+            Status: <span class="player-status">${this.playerState}</span>
+          </div>
+        </div>
+        <div id="youtube-player-container">
+          <!-- YouTube player will be inserted here -->
+        </div>
+      `;
+      
+      // Insert after join session section or at the beginning of content
+      const content = this.element.querySelector('.youtube-dj-content');
+      const joinSection = this.element.querySelector('.join-session');
+      if (content) {
+        if (joinSection && joinSection.nextSibling) {
+          content.insertBefore(playerSection, joinSection.nextSibling);
+        } else {
+          content.appendChild(playerSection);
+        }
+      }
+      
+      playerContainer = this.element.querySelector('#youtube-player-container');
+      if (!playerContainer) {
+        console.error('Failed to create YouTube player container');
+        return;
+      }
     }
 
     // Clean up any existing player first
@@ -235,17 +357,32 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       // For development, let YouTube handle protocol automatically
       console.log(`🎵 YouTube DJ | Creating YouTube API player - Origin: ${window.location.origin}`);
       
+      // Use current video from queue based on currentIndex, otherwise no default video
+      const currentItem = this.queueState.items.length > 0 && this.queueState.currentIndex >= 0 && this.queueState.currentIndex < this.queueState.items.length
+        ? this.queueState.items[this.queueState.currentIndex]
+        : (this.queueState.items.length > 0 ? this.queueState.items[0] : null);
+      
+      const initialVideoId = currentItem?.videoId;
+      
+      // Update current video title if we have a current item
+      if (currentItem) {
+        this.currentVideoTitle = currentItem.title || currentItem.videoId;
+        console.log(`🎵 YouTube DJ | Initializing with current video: ${this.currentVideoTitle} (index: ${this.queueState.currentIndex})`);
+        // Update window title after a short delay to ensure DOM is ready
+        setTimeout(() => this._updateWindowTitle(), 500);
+      }
+      
       this.youtubePlayer = new YT.Player('youtube-player', {
         height: '315',
         width: '560',
-        videoId: 'M7lc1UVf-VE', // Default video to initialize player
+        ...(initialVideoId && { videoId: initialVideoId }),
         playerVars: {
           'playsinline': 1,
           'controls': 1,
           'rel': 0,
           'modestbranding': 1,
           'autoplay': 0,
-          'mute': 1,
+          'mute': 0,
           'enablejsapi': 1
           // Don't set origin parameter to avoid protocol mismatch
         },
@@ -350,9 +487,16 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     this.playerReady = true;
     console.log('🎵 YouTube DJ | Player marked as ready with full API control');
     
+    // Set default volume to 20%
+    if (this.youtubePlayer) {
+      this.youtubePlayer.setVolume(20);
+      console.log('🎵 YouTube DJ | Set default volume to 20%');
+    }
+    
     // Update UI elements without full re-render to preserve player
     this._updatePlayerStatusUI();
     this._updateTransportControls();
+    this._updateQueueUI(); // Ensure current video is highlighted
     
     // Start seek bar updates for DJ
     this._startSeekBarUpdates();
@@ -680,50 +824,106 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     const stateName = states[event.data + 1] || 'unknown';
     console.log(`🎵 YouTube DJ | Player state: ${stateName}`);
     
+    // MVP-U4: Auto-advance queue when video ends
+    if (event.data === 0 && this.isDJ) { // 0 = ended
+      console.log('🎵 YouTube DJ | Video ended, checking for auto-advance...');
+      setTimeout(() => {
+        this._autoAdvanceQueue();
+      }, 1000); // Small delay to ensure state is stable
+    }
+    
     // Update UI if needed
     this._updatePlayerStatus();
+  }
+
+  /**
+   * MVP-U4: Auto-advance to next video in queue when current video ends
+   */
+  private _autoAdvanceQueue(): void {
+    if (!this.isDJ || this.queueState.items.length === 0) {
+      return;
+    }
+    
+    // Check if there's a next video in the queue
+    const nextIndex = this.queueState.currentIndex + 1;
+    if (nextIndex < this.queueState.items.length) {
+      console.log('🎵 YouTube DJ | Auto-advancing to next video in queue');
+      this._playNextInQueue();
+    } else {
+      console.log('🎵 YouTube DJ | Reached end of queue, no auto-advance');
+      ui.notifications?.info('Queue finished - add more videos or manually restart');
+    }
   }
 
   /**
    * YouTube player error callback
    */
   private _onPlayerError(event: any): void {
-    const errorMessages = {
-      2: 'Invalid video ID',
-      5: 'HTML5 player error',
-      100: 'Video not found or private',
-      101: 'Video not allowed in embedded players',
-      150: 'Video not allowed in embedded players'
-    };
+    console.error('🎵 YouTube DJ | Player error event:', event);
     
-    const message = errorMessages[event.data] || `Unknown error: ${event.data}`;
-    console.error('🎵 YouTube DJ | Player error:', message);
-    
-    // For initialization errors, don't show notification (expected for default video)
-    if (event.data !== 101 && event.data !== 150) {
-      ui.notifications?.error(`YouTube Error: ${message}`);
-    } else {
-      console.log('🎵 YouTube DJ | Embedded player restriction (expected for default video)');
+    // Get current video ID if available
+    let currentVideoId = null;
+    try {
+      if (this.youtubePlayer) {
+        const videoData = this.youtubePlayer.getVideoData();
+        currentVideoId = videoData?.video_id;
+      }
+    } catch (e) {
+      // Ignore errors getting video data
     }
+    
+    // Use enhanced error handling
+    this._handleYouTubeAPIError(event, currentVideoId);
   }
 
   /**
    * Extract YouTube video ID from URL
    */
-  private _extractVideoId(url: string): string | null {
-    const patterns = [
-      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/)([^&\n?#]+)/,
-      /^([a-zA-Z0-9_-]{11})$/ // Direct video ID
-    ];
-
-    for (const pattern of patterns) {
-      const match = url.match(pattern);
-      if (match) {
-        return match[1];
+  /**
+   * Extract YouTube video ID from various URL formats with enhanced validation
+   */
+  private _extractVideoId(input: string): string | null {
+    try {
+      // Remove whitespace
+      input = input.trim();
+      
+      // If it's already just an ID (11 characters)
+      if (/^[a-zA-Z0-9_-]{11}$/.test(input)) {
+        return input;
       }
+      
+      // Handle various YouTube URL formats including mobile and international
+      const patterns = [
+        // Standard YouTube URLs
+        /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+        /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
+        /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
+        // Mobile YouTube URLs
+        /m\.youtube\.com\/watch\?v=([a-zA-Z0-9_-]{11})/,
+        // YouTube shorts
+        /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
+        // International YouTube domains
+        /youtube\.[a-z]{2,3}\/watch\?v=([a-zA-Z0-9_-]{11})/,
+        // YouTube with additional parameters
+        /youtube\.com\/watch\?.*[&?]v=([a-zA-Z0-9_-]{11})/
+      ];
+      
+      for (const pattern of patterns) {
+        const match = input.match(pattern);
+        if (match && match[1]) {
+          // Validate the extracted ID
+          const videoId = match[1];
+          if (/^[a-zA-Z0-9_-]{11}$/.test(videoId)) {
+            return videoId;
+          }
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('🎵 YouTube DJ | Error extracting video ID:', error);
+      return null;
     }
-
-    return null;
   }
 
   /**
@@ -796,6 +996,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       input.value = ''; // Clear input
       ui.notifications?.info(`Loading video: ${videoId}`);
       console.log(`🎵 YouTube DJ | Successfully loaded video via API: ${videoId}`);
+      
+      // Update title after a short delay to let YouTube load
+      setTimeout(() => {
+        this._updatePlayerStatusUI();
+      }, 1000);
       
       // Broadcast LOAD message to sync with other clients
       if (this.isDJ) {
@@ -1046,8 +1251,13 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       // Try to claim DJ role if no one is DJ yet
       this._tryClaimDJRole();
       
-      // Initialize the YouTube player with user consent
-      this._initializeYouTubePlayer();
+      // Re-render to show YouTube player container with hasJoinedSession: true
+      this.render(true);
+      
+      // Initialize the YouTube player with user consent after render
+      setTimeout(() => {
+        this._initializeYouTubePlayer();
+      }, 100);
       
       // Create session sections manually if they don't exist
       this._ensureSessionSectionsExist();
@@ -1057,6 +1267,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this._updateDJStatusHeader();
       this._updateTransportControls();
       this._updateSessionMembersUI();
+      
+      // MVP-U4: Create queue section dynamically after joining session
+      this._ensureQueueSectionExists();
+      
+      // MVP-U6: Initialize MVP-U6 UI elements
+      this._updateDJRequestsUI();
       
       ui.notifications?.info('Joining session... YouTube player will load momentarily.');
       console.log('🎵 YouTube DJ | Session joined with user consent');
@@ -1151,10 +1367,247 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   }
 
   /**
+   * MVP-U4: Handle add to queue button click
+   */
+  private _onAddToQueueClick(): void {
+    const input = this.element.querySelector('.youtube-url-input') as HTMLInputElement;
+    if (!input || !input.value.trim()) {
+      ui.notifications?.warn('Please enter a YouTube URL or video ID');
+      return;
+    }
+
+    const videoId = this._extractVideoId(input.value.trim());
+    if (!videoId) {
+      ui.notifications?.error('Invalid YouTube URL or video ID');
+      return;
+    }
+
+    if (!this.isDJ) {
+      ui.notifications?.warn('Only the DJ can add videos to the queue');
+      return;
+    }
+
+    this._addToQueue(videoId, input.value.trim());
+    input.value = ''; // Clear input
+  }
+
+  /**
+   * MVP-U4: Handle next button click
+   */
+  private _onNextClick(): void {
+    if (!this.isDJ) {
+      ui.notifications?.warn('Only the DJ can control the queue');
+      return;
+    }
+
+    this._playNextInQueue();
+  }
+
+  /**
+   * MVP-U4: Handle remove from queue button click
+   */
+  private _onRemoveQueueClick(event: Event): void {
+    if (!this.isDJ) {
+      ui.notifications?.warn('Only the DJ can remove videos from the queue');
+      return;
+    }
+
+    const button = event.target as HTMLButtonElement;
+    const queueId = button.dataset.queueId;
+    if (queueId) {
+      this._removeFromQueue(queueId);
+    }
+  }
+
+  /**
    * Handle close button click
    */
   private _onCloseClick(): void {
     this.close();
+  }
+
+  /**
+   * Update window title to include current video name
+   */
+  private _updateWindowTitle(): void {
+    const baseTitle = 'YouTube DJ - Synced Player';
+    if (this.currentVideoTitle) {
+      const newTitle = `${baseTitle} - ${this.currentVideoTitle}`;
+      if (this.element) {
+        const header = this.element.closest('.app')?.querySelector('.window-title');
+        if (header) {
+          header.textContent = newTitle;
+        }
+      }
+    }
+  }
+  
+  
+  /**
+   * MVP-U6: Handle request DJ button click
+   */
+  private _onRequestDJClick(): void {
+    if (!this.hasJoinedSession) {
+      ui.notifications?.warn('Please join the session first');
+      return;
+    }
+    
+    if (this.isDJ) {
+      ui.notifications?.info('You are already the DJ');
+      return;
+    }
+    
+    if (!this.djUserId) {
+      // No DJ exists, claim directly
+      this._onClaimDJClick();
+      return;
+    }
+    
+    // Send DJ request to current DJ
+    console.log('🎵 YouTube DJ | Requesting DJ role...');
+    
+    this._broadcastMessage({
+      type: 'DJ_REQUEST',
+      data: { 
+        requesterId: game.user?.id,
+        requesterName: game.user?.name 
+      },
+      userId: game.user?.id || '',
+      timestamp: Date.now()
+    });
+    
+    ui.notifications?.info('DJ role requested. Waiting for current DJ to respond...');
+  }
+  
+  /**
+   * MVP-U6: Handle handoff DJ button click
+   */
+  private _onHandoffDJClick(): void {
+    if (!this.isDJ) {
+      ui.notifications?.warn('Only the DJ can hand off the role');
+      return;
+    }
+    
+    if (this.sessionMembers.length < 2) {
+      ui.notifications?.warn('No other users available to hand off DJ role');
+      return;
+    }
+    
+    // Show dialog to select who to hand off to
+    this._showHandoffDialog();
+  }
+  
+  /**
+   * MVP-U6: Handle mute player button click
+   */
+  private _onMutePlayerClick(): void {
+    this.isPlayerMuted = !this.isPlayerMuted;
+    
+    if (this.youtubePlayer) {
+      if (this.isPlayerMuted) {
+        this.youtubePlayer.mute();
+        ui.notifications?.info('Player muted');
+      } else {
+        this.youtubePlayer.unMute();
+        ui.notifications?.info('Player unmuted');
+      }
+    }
+    
+    // Update all mute buttons (in case there are multiple)
+    const muteBtns = this.element.querySelectorAll('.mute-player-btn');
+    muteBtns.forEach(muteBtn => {
+      const icon = muteBtn.querySelector('i');
+      if (icon) {
+        icon.className = this.isPlayerMuted ? 'fas fa-volume-mute' : 'fas fa-volume-up';
+      }
+      muteBtn.setAttribute('title', this.isPlayerMuted ? 'Unmute Player' : 'Mute Player');
+      
+      // Update button icon only (no text labels)
+      muteBtn.innerHTML = `
+        <i class="fas ${this.isPlayerMuted ? 'fa-volume-mute' : 'fa-volume-up'}"></i>
+      `;
+    });
+  }
+  
+  /**
+   * MVP-U6: Handle GM override button click
+   */
+  private _onGMOverrideClick(): void {
+    if (!game.user?.isGM) {
+      ui.notifications?.error('Only GMs can override DJ control');
+      return;
+    }
+    
+    console.log('🎵 YouTube DJ | GM override - taking DJ control');
+    
+    // Force claim DJ role
+    const previousDJ = this.djUserId;
+    this.isDJ = true;
+    this.djUserId = game.user?.id || '';
+    
+    // Save to world state
+    this._saveWorldState();
+    
+    this._broadcastMessage({
+      type: 'GM_OVERRIDE',
+      data: { 
+        previousDJ,
+        newDJ: this.djUserId 
+      },
+      userId: game.user?.id || '',
+      timestamp: Date.now()
+    });
+    
+    // Update UI
+    this._updateDJControls();
+    this._updateDJStatusHeader();
+    this._updateTransportControls();
+    this._updateSessionMembersUI();
+    
+    ui.notifications?.success('GM override: DJ control taken');
+  }
+  
+  /**
+   * MVP-U6: Handle approve DJ request button click
+   */
+  private _onApproveDJRequestClick(event: Event): void {
+    const button = event.target as HTMLButtonElement;
+    const requesterId = button.dataset.requesterId;
+    
+    if (!requesterId) {
+      console.error('🎵 YouTube DJ | No requester ID found on approve button');
+      return;
+    }
+    
+    console.log(`🎵 YouTube DJ | Approving DJ request from ${requesterId}`);
+    
+    // Hand off DJ role
+    this._handoffDJToUser(requesterId);
+    
+    // Remove the request
+    this._removeDJRequest(requesterId);
+  }
+  
+  /**
+   * MVP-U6: Handle deny DJ request button click
+   */
+  private _onDenyDJRequestClick(event: Event): void {
+    const button = event.target as HTMLButtonElement;
+    const requesterId = button.dataset.requesterId;
+    
+    if (!requesterId) {
+      console.error('🎵 YouTube DJ | No requester ID found on deny button');
+      return;
+    }
+    
+    console.log(`🎵 YouTube DJ | Denying DJ request from ${requesterId}`);
+    
+    // Remove the request
+    this._removeDJRequest(requesterId);
+    
+    // Notify the requester
+    // Note: In a full implementation, you'd send a denial message
+    ui.notifications?.info('DJ request denied');
   }
   
   /** @override */
@@ -1210,7 +1663,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     }
     
     // Update current video title if we can get it
-    const videoTitleElement = this.element.querySelector('.current-video-title');
+    const videoTitleElement = this.element.querySelector('.player-info h3');
     if (videoTitleElement && this.youtubePlayer && this.playerReady) {
       try {
         // Try to get video data, but don't fail if it's not available
@@ -1221,6 +1674,14 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       } catch (error) {
         // Video data might not be available yet, that's OK
         console.log('🎵 YouTube DJ | Video data not yet available');
+      }
+    }
+    
+    // Also update from queue state if available
+    if (!videoTitleElement?.textContent || videoTitleElement.textContent === 'No video loaded') {
+      const currentVideo = this.queueState.items[this.queueState.currentIndex];
+      if (currentVideo && videoTitleElement) {
+        videoTitleElement.textContent = currentVideo.title || currentVideo.videoId;
       }
     }
     
@@ -1280,6 +1741,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       }
     });
     
+    // MVP-U5: Set up connection monitoring and recovery
+    this._setupConnectionMonitoring();
+    
     this.isConnected = true;
     
     // Test basic socket functionality
@@ -1323,46 +1787,133 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _loadWorldState(): void {
     console.log('🎵 YouTube DJ | Loading world state...');
     
-    // Load DJ state from world settings
-    const worldDJ = game.settings.get('core', YouTubeDJApp.WORLD_DJ_SETTING) as string | null;
-    const worldMembers = game.settings.get('core', YouTubeDJApp.WORLD_MEMBERS_SETTING) as Array<{id: string, name: string, isDJ: boolean}> | null;
-    
-    if (worldDJ) {
-      const djUser = game.users?.get(worldDJ);
-      const djActive = djUser?.active;
-      console.log(`🎵 YouTube DJ | Found existing DJ in world: ${worldDJ} (${djUser?.name}), active: ${djActive}`);
+    try {
+      // Load DJ state from world settings
+      const worldDJ = game.settings.get('core', YouTubeDJApp.WORLD_DJ_SETTING) as string | null;
+      const worldMembers = game.settings.get('core', YouTubeDJApp.WORLD_MEMBERS_SETTING) as Array<{id: string, name: string, isDJ: boolean}> | null;
       
-      if (djActive) {
-        this.djUserId = worldDJ;
-        this.isDJ = worldDJ === game.user?.id;
-        console.log(`🎵 YouTube DJ | Loaded DJ state - Current user is DJ: ${this.isDJ}`);
-      } else {
-        console.log(`🎵 YouTube DJ | Previous DJ ${worldDJ} is inactive, clearing DJ state`);
-        this.djUserId = null;
-        this.isDJ = false;
+      if (worldDJ) {
+        const djUser = game.users?.get(worldDJ);
+        const djActive = djUser?.active;
+        console.log(`🎵 YouTube DJ | Found existing DJ in world: ${worldDJ} (${djUser?.name}), active: ${djActive}`);
+        
+        if (djActive) {
+          this.djUserId = worldDJ;
+          this.isDJ = worldDJ === game.user?.id;
+          console.log(`🎵 YouTube DJ | Loaded DJ state - Current user is DJ: ${this.isDJ}`);
+        } else {
+          console.log(`🎵 YouTube DJ | Previous DJ ${worldDJ} is inactive, clearing DJ state`);
+          this.djUserId = null;
+          this.isDJ = false;
+        }
       }
-    }
-    
-    if (worldMembers && Array.isArray(worldMembers)) {
-      console.log(`🎵 YouTube DJ | Found existing session members:`, worldMembers);
-      this.sessionMembers = worldMembers;
+      
+      if (worldMembers && Array.isArray(worldMembers)) {
+        console.log(`🎵 YouTube DJ | Found existing session members:`, worldMembers);
+        this.sessionMembers = worldMembers;
+      }
+      
+      // MVP-U5: Load queue state with validation
+      const worldQueue = game.settings.get('core', YouTubeDJApp.WORLD_QUEUE_SETTING) as QueueState | null;
+      if (worldQueue && this._validateQueueState(worldQueue)) {
+        console.log(`🎵 YouTube DJ | Found existing queue:`, worldQueue);
+        this.queueState = worldQueue;
+      } else if (worldQueue) {
+        console.warn('🎵 YouTube DJ | Invalid queue state found, resetting to default');
+        this._resetQueueState();
+      }
+      
+    } catch (error) {
+      console.error('🎵 YouTube DJ | Error loading world state:', error);
+      ui.notifications?.warn('Failed to load some session data - using defaults');
+      this._resetQueueState();
     }
   }
 
   /**
-   * Save current state to world settings (GM only)
+   * MVP-U5: Validate queue state structure
+   */
+  private _validateQueueState(queueState: any): boolean {
+    if (!queueState || typeof queueState !== 'object') {
+      return false;
+    }
+    
+    if (!Array.isArray(queueState.items)) {
+      return false;
+    }
+    
+    if (typeof queueState.currentIndex !== 'number') {
+      return false;
+    }
+    
+    if (typeof queueState.mode !== 'string') {
+      return false;
+    }
+    
+    // Validate each queue item
+    for (const item of queueState.items) {
+      if (!item.id || !item.videoId || !item.addedBy || typeof item.addedAt !== 'number') {
+        return false;
+      }
+    }
+    
+    return true;
+  }
+
+  /**
+   * MVP-U5: Reset queue state to default
+   */
+  private _resetQueueState(): void {
+    this.queueState = {
+      items: [],
+      currentIndex: -1,
+      mode: 'single-dj',
+      djUserId: this.djUserId
+    };
+    console.log('🎵 YouTube DJ | Queue state reset to default');
+  }
+
+  /**
+   * Save current state to world settings (with GM fallback handling)
    */
   private _saveWorldState(): void {
     console.log('🎵 YouTube DJ | Saving world state...');
     
-    // Only GMs can write to world settings
-    if (!game.user?.isGM) {
-      console.log('🎵 YouTube DJ | Non-GM user, skipping world state save');
-      return;
+    // Try to save directly if user is GM
+    if (game.user?.isGM) {
+      try {
+        game.settings.set('core', YouTubeDJApp.WORLD_DJ_SETTING, this.djUserId);
+        game.settings.set('core', YouTubeDJApp.WORLD_MEMBERS_SETTING, this.sessionMembers);
+        game.settings.set('core', YouTubeDJApp.WORLD_QUEUE_SETTING, this.queueState);
+        console.log('🎵 YouTube DJ | World state saved by GM');
+        return;
+      } catch (error) {
+        console.error('🎵 YouTube DJ | Failed to save world state as GM:', error);
+      }
     }
     
-    game.settings.set('core', YouTubeDJApp.WORLD_DJ_SETTING, this.djUserId);
-    game.settings.set('core', YouTubeDJApp.WORLD_MEMBERS_SETTING, this.sessionMembers);
+    // MVP-U6: Fallback - request any active GM to save state
+    const activeGMs = Array.from(game.users?.values() || []).filter(user => user.isGM && user.active);
+    
+    if (activeGMs.length > 0) {
+      console.log(`🎵 YouTube DJ | Non-GM user, requesting GM to save state (${activeGMs.length} active GMs)`);
+      
+      // Broadcast state save request to GMs
+      this._broadcastMessage({
+        type: 'STATE_SAVE_REQUEST' as any,
+        data: {
+          djUserId: this.djUserId,
+          sessionMembers: this.sessionMembers,
+          queueState: this.queueState
+        },
+        userId: game.user?.id || '',
+        timestamp: Date.now()
+      });
+    } else {
+      console.log('🎵 YouTube DJ | No active GMs available, state changes will be temporary');
+      // Note: In a production system, you might want to queue state changes
+      // and save them when a GM becomes available
+    }
   }
 
   /**
@@ -1463,11 +2014,23 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       case 'STATE_RESPONSE':
         this._handleStateResponse(message);
         break;
+      case 'STATE_SAVE_REQUEST':
+        this._handleStateSaveRequest(message);
+        break;
       case 'DJ_CLAIM':
         this._handleDJClaim(message);
         break;
       case 'DJ_RELEASE':
         this._handleDJRelease(message);
+        break;
+      case 'DJ_REQUEST':
+        this._handleDJRequest(message);
+        break;
+      case 'DJ_HANDOFF':
+        this._handleDJHandoff(message);
+        break;
+      case 'GM_OVERRIDE':
+        this._handleGMOverride(message);
         break;
       case 'PLAY':
         this._handleRemotePlay(message);
@@ -1489,6 +2052,18 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         break;
       case 'HEARTBEAT':
         this._handleHeartbeat(message);
+        break;
+      case 'QUEUE_ADD':
+        this._handleQueueAdd(message);
+        break;
+      case 'QUEUE_REMOVE':
+        this._handleQueueRemove(message);
+        break;
+      case 'QUEUE_NEXT':
+        this._handleQueueNext(message);
+        break;
+      case 'QUEUE_UPDATE':
+        this._handleQueueUpdate(message);
         break;
       case 'PING':
         console.log(`🎵 YouTube DJ | PING received from ${message.userId}!`);
@@ -1568,6 +2143,13 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         console.log(`🎵 YouTube DJ | Updated session members from state response`);
       }
       
+      // MVP-U5: Handle queue state recovery
+      if (message.data.queueState && this._validateQueueState(message.data.queueState)) {
+        console.log('🎵 YouTube DJ | Recovering queue state from peer');
+        this.queueState = message.data.queueState;
+        this._updateQueueUI();
+      }
+      
       // MVP-U3: Handle late joiner sync with current playback state
       if (message.data.currentPlayback && !this.isDJ && this.playerReady && this.youtubePlayer) {
         const playback = message.data.currentPlayback;
@@ -1593,14 +2175,51 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           }
         } catch (error) {
           console.error('🎵 YouTube DJ | Error during late joiner sync:', error);
+          ui.notifications?.warn('Failed to sync video playback');
         }
       }
       
       // Save updated state and refresh UI
-      this._saveWorldState();
+      try {
+        this._saveWorldState();
+      } catch (error) {
+        console.error('🎵 YouTube DJ | Failed to save recovered state:', error);
+      }
+      
       this._updateSessionMembersUI();
       this._updateDJControls();
       this._updateDJStatusHeader();
+    }
+  }
+
+  /**
+   * MVP-U6: Handle state save request from non-GM users
+   */
+  private _handleStateSaveRequest(message: YouTubeDJMessage): void {
+    // Only GMs should handle state save requests
+    if (!game.user?.isGM) {
+      return;
+    }
+    
+    console.log(`🎵 YouTube DJ | Received state save request from ${message.userId}`);
+    
+    if (message.data) {
+      try {
+        // Save the provided state to world settings
+        if (message.data.djUserId !== undefined) {
+          game.settings.set('core', YouTubeDJApp.WORLD_DJ_SETTING, message.data.djUserId);
+        }
+        if (message.data.sessionMembers) {
+          game.settings.set('core', YouTubeDJApp.WORLD_MEMBERS_SETTING, message.data.sessionMembers);
+        }
+        if (message.data.queueState) {
+          game.settings.set('core', YouTubeDJApp.WORLD_QUEUE_SETTING, message.data.queueState);
+        }
+        
+        console.log(`🎵 YouTube DJ | GM saved state on behalf of ${game.users?.get(message.userId)?.name}`);
+      } catch (error) {
+        console.error('🎵 YouTube DJ | Failed to save state on behalf of non-GM:', error);
+      }
     }
   }
 
@@ -1652,6 +2271,119 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this._updateSessionMembersUI();
     } else {
       console.log(`🎵 YouTube DJ | DJ_RELEASE ignored - not from current DJ (${this.djUserId} vs ${message.userId})`);
+    }
+  }
+
+  /**
+   * MVP-U6: Handle DJ request message
+   */
+  private _handleDJRequest(message: YouTubeDJMessage): void {
+    // Only the current DJ should handle DJ requests
+    if (!this.isDJ) {
+      return;
+    }
+    
+    console.log(`🎵 YouTube DJ | Received DJ request from ${message.userId}`);
+    
+    const requesterUser = game.users?.get(message.userId);
+    if (!requesterUser) {
+      console.warn('🎵 YouTube DJ | DJ request from unknown user');
+      return;
+    }
+    
+    // Add to requests list if not already present
+    const existingRequest = this.djRequests.find(req => req.userId === message.userId);
+    if (!existingRequest) {
+      this.djRequests.push({
+        userId: message.userId,
+        userName: requesterUser.name || 'Unknown',
+        timestamp: Date.now()
+      });
+      
+      // Update UI to show the request
+      this._updateDJRequestsUI();
+      
+      // Notify current DJ
+      ui.notifications?.info(`${requesterUser.name} is requesting DJ role`);
+    }
+  }
+
+  /**
+   * MVP-U6: Handle DJ handoff message
+   */
+  private _handleDJHandoff(message: YouTubeDJMessage): void {
+    console.log(`🎵 YouTube DJ | Received DJ handoff from ${message.userId} to ${message.data?.newDJ}`);
+    
+    if (message.data?.newDJ === game.user?.id) {
+      // This user is receiving DJ role
+      this.isDJ = true;
+      this.djUserId = game.user?.id || '';
+      
+      // Start heartbeat if we have a ready player
+      if (this.playerReady) {
+        this._startHeartbeat();
+      }
+      
+      // Update UI
+      this._updateDJControls();
+      this._updateDJStatusHeader();
+      this._updateTransportControls();
+      this._updateSessionMembersUI();
+      
+      const previousDJUser = game.users?.get(message.userId);
+      ui.notifications?.success(`You are now the DJ (handed off by ${previousDJUser?.name || 'Unknown'})`);
+    } else {
+      // Update state for other users
+      this.djUserId = message.data?.newDJ || null;
+      this.isDJ = false;
+      
+      // Update UI
+      this._updateDJControls();
+      this._updateDJStatusHeader();
+      this._updateTransportControls();
+      this._updateSessionMembersUI();
+    }
+  }
+
+  /**
+   * MVP-U6: Handle GM override message
+   */
+  private _handleGMOverride(message: YouTubeDJMessage): void {
+    console.log(`🎵 YouTube DJ | Received GM override from ${message.userId}`);
+    
+    // Verify sender is actually a GM
+    const gmUser = game.users?.get(message.userId);
+    if (!gmUser?.isGM) {
+      console.warn('🎵 YouTube DJ | Non-GM user attempted override - ignoring');
+      return;
+    }
+    
+    // Update DJ state
+    const newDJ = message.data?.newDJ;
+    if (newDJ) {
+      this.djUserId = newDJ;
+      this.isDJ = (newDJ === game.user?.id);
+      
+      // Start or stop heartbeat based on new role
+      if (this.isDJ && this.playerReady) {
+        this._startHeartbeat();
+      } else {
+        this._stopHeartbeat();
+      }
+      
+      // Update UI
+      this._updateDJControls();
+      this._updateDJStatusHeader();
+      this._updateTransportControls();
+      this._updateSessionMembersUI();
+      
+      const gmName = gmUser.name || 'GM';
+      if (this.isDJ) {
+        ui.notifications?.success(`GM ${gmName} has made you the DJ`);
+      } else {
+        const newDJUser = game.users?.get(newDJ);
+        ui.notifications?.info(`GM ${gmName} has made ${newDJUser?.name || 'Unknown'} the DJ`);
+      }
     }
   }
 
@@ -1731,8 +2463,68 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       const member = this.sessionMembers[memberIndex];
       this.sessionMembers.splice(memberIndex, 1);
       console.log(`🎵 YouTube DJ | User left session: ${member.name}`);
+      
+      // MVP-U6: Handle DJ leaving without handoff
+      if (this.djUserId === message.userId) {
+        console.log('🎵 YouTube DJ | DJ left without handoff - initiating auto-recovery');
+        
+        // Clear DJ state
+        this.djUserId = null;
+        this.isDJ = false;
+        
+        // Stop heartbeat if this was the local DJ
+        this._stopHeartbeat();
+        
+        // Find next available user to become DJ
+        this._initiateAutoRecovery();
+        
+        ui.notifications?.warn('DJ left the session. Auto-recovery in progress...');
+      }
+      
       this._updateSessionMembersUI();
     }
+  }
+  
+  /**
+   * MVP-U6: Initiate auto-recovery when DJ leaves without handoff
+   */
+  private _initiateAutoRecovery(): void {
+    console.log('🎵 YouTube DJ | Initiating DJ auto-recovery...');
+    
+    // Wait a moment to see if anyone else claims DJ role
+    setTimeout(() => {
+      if (!this.djUserId && this.sessionMembers.length > 0) {
+        // Try to claim DJ role if we're still in session
+        if (this.hasJoinedSession) {
+          console.log('🎵 YouTube DJ | Auto-claiming DJ role after previous DJ left');
+          
+          this.isDJ = true;
+          this.djUserId = game.user?.id || '';
+          
+          // Save to world state
+          this._saveWorldState();
+          
+          this._broadcastMessage({
+            type: 'DJ_CLAIM',
+            userId: game.user?.id || '',
+            timestamp: Date.now()
+          });
+          
+          // Update UI
+          this._updateDJControls();
+          this._updateDJStatusHeader();
+          this._updateTransportControls();
+          this._updateSessionMembersUI();
+          
+          // Start heartbeat if player is ready
+          if (this.playerReady) {
+            this._startHeartbeat();
+          }
+          
+          ui.notifications?.success('You are now the DJ (auto-recovery)');
+        }
+      }
+    }, 2000); // 2 second delay to allow for race conditions
   }
 
   /**
@@ -1866,6 +2658,340 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   }
 
   /**
+   * MVP-U4: Add video to queue
+   */
+  private _addToQueue(videoId: string, originalUrl: string): void {
+    try {
+      // MVP-U5: Enhanced input validation
+      if (!videoId || videoId.trim() === '') {
+        throw new Error('Invalid video ID');
+      }
+      
+      // Validate video ID format (YouTube video IDs are 11 characters)
+      const cleanVideoId = videoId.trim();
+      if (!/^[a-zA-Z0-9_-]{11}$/.test(cleanVideoId)) {
+        throw new Error('Invalid YouTube video ID format');
+      }
+      
+      // Check for duplicates
+      const existingItem = this.queueState.items.find(item => item.videoId === cleanVideoId);
+      if (existingItem) {
+        ui.notifications?.warn(`Video already in queue: ${cleanVideoId}`);
+        return;
+      }
+      
+      // Check queue size limit
+      const MAX_QUEUE_SIZE = 50;
+      if (this.queueState.items.length >= MAX_QUEUE_SIZE) {
+        ui.notifications?.error(`Queue is full (max ${MAX_QUEUE_SIZE} videos)`);
+        return;
+      }
+      
+      // Check estimated queue duration (assuming average 4 minutes per video)
+      const estimatedDuration = this.queueState.items.length * 4; // minutes
+      const MAX_QUEUE_DURATION = 240; // 4 hours
+      if (estimatedDuration >= MAX_QUEUE_DURATION) {
+        ui.notifications?.warn(`Queue duration limit reached (${MAX_QUEUE_DURATION/60} hours max)`);
+        return;
+      }
+      
+      const videoItem: VideoItem = {
+        id: foundry.utils.randomID(),
+        videoId: cleanVideoId,
+        title: undefined, // Will be fetched later if needed
+        thumbnail: `https://img.youtube.com/vi/${cleanVideoId}/default.jpg`,
+        addedBy: game.user?.name || 'Unknown',
+        addedAt: Date.now()
+      };
+      
+      // Attempt to fetch video title asynchronously
+      this._fetchVideoTitle(cleanVideoId, videoItem.id);
+      
+      this.queueState.items.push(videoItem);
+      console.log(`🎵 YouTube DJ | Added to queue: ${videoId}`);
+      
+      // Save to world state with error handling
+      try {
+        this._saveWorldState();
+      } catch (error) {
+        console.error('🎵 YouTube DJ | Failed to save queue state:', error);
+        ui.notifications?.warn('Queue saved locally but may not sync to other clients');
+      }
+      
+      // Broadcast queue update with retry
+      this._broadcastMessageWithRetry({
+        type: 'QUEUE_ADD',
+        data: { videoItem },
+        userId: game.user?.id || '',
+        timestamp: Date.now()
+      });
+      
+      // Update UI
+      this._updateQueueUI();
+      
+      ui.notifications?.success(`Added to queue: ${cleanVideoId}`);
+      
+    } catch (error) {
+      console.error('🎵 YouTube DJ | Error adding to queue:', error);
+      
+      // Provide user-friendly error messages
+      let userMessage = 'Failed to add video to queue';
+      if (error.message.includes('Invalid')) {
+        userMessage = 'Please enter a valid YouTube URL or video ID';
+      } else if (error.message.includes('Queue is full')) {
+        userMessage = error.message;
+      } else if (error.message.includes('duration limit')) {
+        userMessage = error.message;
+      }
+      
+      ui.notifications?.error(userMessage);
+    }
+  }
+
+  /**
+   * MVP-U4: Remove video from queue
+   */
+  private _removeFromQueue(queueId: string): void {
+    try {
+      const index = this.queueState.items.findIndex(item => item.id === queueId);
+      if (index === -1) {
+        console.warn(`🎵 YouTube DJ | Queue item not found: ${queueId}`);
+        ui.notifications?.warn('Video not found in queue');
+        return;
+      }
+      
+      const removedItem = this.queueState.items.splice(index, 1)[0];
+      
+      // Adjust current index if needed
+      if (index <= this.queueState.currentIndex) {
+        if (this.queueState.currentIndex > 0) {
+          this.queueState.currentIndex--;
+        } else if (index === this.queueState.currentIndex) {
+          // If we removed the current video, reset index
+          this.queueState.currentIndex = -1;
+        }
+      }
+      
+      console.log(`🎵 YouTube DJ | Removed from queue: ${removedItem.videoId}`);
+      
+      // Save to world state with error handling
+      try {
+        this._saveWorldState();
+      } catch (error) {
+        console.error('🎵 YouTube DJ | Failed to save queue state:', error);
+        ui.notifications?.warn('Queue updated locally but may not sync to other clients');
+      }
+      
+      // Broadcast queue update with retry
+      this._broadcastMessageWithRetry({
+        type: 'QUEUE_REMOVE',
+        data: { queueId, index },
+        userId: game.user?.id || '',
+        timestamp: Date.now()
+      });
+      
+      // Update UI
+      this._updateQueueUI();
+      
+      ui.notifications?.success(`Removed from queue: ${removedItem.videoId}`);
+      
+    } catch (error) {
+      console.error('🎵 YouTube DJ | Error removing from queue:', error);
+      ui.notifications?.error(`Failed to remove video from queue: ${error.message}`);
+    }
+  }
+
+  /**
+   * MVP-U4: Play next video in queue
+   */
+  private _playNextInQueue(): void {
+    if (this.queueState.items.length === 0) {
+      ui.notifications?.warn('Queue is empty');
+      return;
+    }
+    
+    // Move to next video
+    this.queueState.currentIndex++;
+    
+    // Check if we've reached the end - loop back to beginning
+    if (this.queueState.currentIndex >= this.queueState.items.length) {
+      this.queueState.currentIndex = 0;
+      ui.notifications?.info('Queue reached end - restarting from beginning');
+      console.log('🎵 YouTube DJ | Queue looped back to beginning');
+    }
+    
+    const currentVideo = this.queueState.items[this.queueState.currentIndex];
+    console.log(`🎵 YouTube DJ | Playing next in queue: ${currentVideo.videoId}`);
+    
+    // Load and play the video
+    if (this.youtubePlayer && this.playerReady) {
+      this.youtubePlayer.loadVideoById(currentVideo.videoId);
+      
+      // Update title and window title after load
+      this.currentVideoTitle = currentVideo.title || currentVideo.videoId;
+      setTimeout(() => {
+        this._updatePlayerStatusUI();
+        this._updateWindowTitle();
+      }, 1000);
+    }
+    
+    // Save to world state
+    this._saveWorldState();
+    
+    // Broadcast queue next
+    this._broadcastMessage({
+      type: 'QUEUE_NEXT',
+      data: { currentIndex: this.queueState.currentIndex },
+      userId: game.user?.id || '',
+      timestamp: Date.now()
+    });
+    
+    // Also broadcast load to sync video
+    this._broadcastMessage({
+      type: 'LOAD',
+      data: { videoId: currentVideo.videoId },
+      userId: game.user?.id || '',
+      timestamp: Date.now()
+    });
+    
+    // Update UI
+    this._updateQueueUI();
+    
+    ui.notifications?.info(`Now playing: ${currentVideo.title || currentVideo.videoId}`);
+  }
+
+  /**
+   * MVP-U4: Handle queue add message
+   */
+  private _handleQueueAdd(message: YouTubeDJMessage): void {
+    if (message.data?.videoItem) {
+      this.queueState.items.push(message.data.videoItem);
+      console.log(`🎵 YouTube DJ | Queue item added by ${message.userId}`);
+      this._updateQueueUI();
+    }
+  }
+
+  /**
+   * MVP-U4: Handle queue remove message
+   */
+  private _handleQueueRemove(message: YouTubeDJMessage): void {
+    if (message.data?.index !== undefined) {
+      const index = message.data.index;
+      if (index >= 0 && index < this.queueState.items.length) {
+        this.queueState.items.splice(index, 1);
+        
+        // Adjust current index if needed
+        if (index <= this.queueState.currentIndex && this.queueState.currentIndex > 0) {
+          this.queueState.currentIndex--;
+        }
+        
+        console.log(`🎵 YouTube DJ | Queue item removed by ${message.userId}`);
+        this._updateQueueUI();
+      }
+    }
+  }
+
+  /**
+   * MVP-U4: Handle queue next message
+   */
+  private _handleQueueNext(message: YouTubeDJMessage): void {
+    if (message.data?.currentIndex !== undefined) {
+      this.queueState.currentIndex = message.data.currentIndex;
+      console.log(`🎵 YouTube DJ | Queue advanced by ${message.userId}`);
+      this._updateQueueUI();
+    }
+  }
+
+  /**
+   * MVP-U4: Handle queue update message
+   */
+  private _handleQueueUpdate(message: YouTubeDJMessage): void {
+    if (message.data?.queueState) {
+      this.queueState = message.data.queueState;
+      console.log(`🎵 YouTube DJ | Queue updated by ${message.userId}`);
+      this._updateQueueUI();
+    }
+  }
+
+  /**
+   * MVP-U4: Update queue UI without full re-render
+   */
+  private _updateQueueUI(): void {
+    const queueSection = this.element.querySelector('.queue-section');
+    if (!queueSection) {
+      console.log('🎵 YouTube DJ | Queue section not found, creating it');
+      this._ensureQueueSectionExists();
+      return;
+    }
+    
+    // Update queue header count
+    const queueHeader = queueSection.querySelector('.queue-header h3');
+    if (queueHeader) {
+      queueHeader.innerHTML = `
+        <i class="fas fa-list"></i>
+        Queue (${this.queueState.items.length} videos)
+      `;
+    }
+    
+    // Update queue list
+    const queueList = queueSection.querySelector('.queue-list');
+    if (queueList) {
+      if (this.queueState.items.length === 0) {
+        queueList.innerHTML = `
+          <div class="queue-empty">
+            <i class="fas fa-music"></i>
+            <p>No videos in queue</p>
+            ${this.isDJ ? '<p>Add videos using the input below</p>' : ''}
+          </div>
+        `;
+      } else {
+        queueList.innerHTML = this.queueState.items.map((item, index) => `
+          <div class="queue-item ${index === this.queueState.currentIndex ? 'current-video' : ''}" data-index="${index}" data-queue-id="${item.id}">
+            <div class="queue-item-info">
+              <span class="queue-item-title">${item.title || item.videoId}</span>
+              <span class="queue-item-meta">Added by ${item.addedBy}</span>
+            </div>
+            ${this.isDJ ? `
+            <div class="queue-item-controls">
+              <button type="button" class="move-up-btn" data-index="${index}" title="Move up" ${index === 0 ? 'disabled' : ''}>
+                <i class="fas fa-chevron-up"></i>
+              </button>
+              <button type="button" class="move-down-btn" data-index="${index}" title="Move down" ${index === this.queueState.items.length - 1 ? 'disabled' : ''}>
+                <i class="fas fa-chevron-down"></i>
+              </button>
+              <button type="button" class="remove-queue-btn" data-queue-id="${item.id}" title="Remove">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
+            ` : ''}
+          </div>
+        `).join('');
+        
+        // Re-attach event listeners for queue control buttons
+        if (this.isDJ) {
+          queueList.querySelectorAll('.remove-queue-btn').forEach(btn => {
+            btn.addEventListener('click', this._onRemoveQueueClick.bind(this));
+          });
+          queueList.querySelectorAll('.move-up-btn').forEach(btn => {
+            btn.addEventListener('click', this._onMoveUpClick.bind(this));
+          });
+          queueList.querySelectorAll('.move-down-btn').forEach(btn => {
+            btn.addEventListener('click', this._onMoveDownClick.bind(this));
+          });
+        }
+      }
+    }
+    
+    // Update next button state
+    const nextBtn = queueSection.querySelector('.next-btn');
+    if (nextBtn && this.isDJ) {
+      nextBtn.disabled = this.queueState.items.length === 0;
+    }
+    
+    console.log('🎵 YouTube DJ | Queue UI updated');
+  }
+
+  /**
    * Update session members UI without full re-render
    */
   private _updateSessionMembersUI(): void {
@@ -1922,8 +3048,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     transportContainer.innerHTML = '';
     
     if (this.isDJ) {
-      // Show DJ controls (play/pause buttons)
+      // Show DJ controls (play/pause/next buttons)
       const disabledAttr = this.playerReady ? '' : 'disabled';
+      const nextDisabledAttr = this.queueState.items.length > 0 ? '' : 'disabled';
       transportContainer.innerHTML = `
         <button 
           type="button" 
@@ -1941,25 +3068,49 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           <i class="fas fa-pause"></i>
           Pause
         </button>
+        <button 
+          type="button" 
+          class="next-btn transport-btn"
+          ${nextDisabledAttr}
+        >
+          <i class="fas fa-step-forward"></i>
+          Next
+        </button>
+        <div class="mute-control">
+          <button type="button" class="mute-player-btn" title="${this.isPlayerMuted ? 'Unmute Player' : 'Mute Player'}">
+            <i class="fas ${this.isPlayerMuted ? 'fa-volume-mute' : 'fa-volume-up'}"></i>
+          </button>
+        </div>
       `;
     } else {
-      // Show listener info
+      // Show listener info with mute control
       transportContainer.innerHTML = `
         <div class="listener-info">
           <i class="fas fa-info-circle"></i>
           <p>Playback is controlled by the DJ</p>
         </div>
+        <div class="mute-control">
+          <button type="button" class="mute-player-btn" title="${this.isPlayerMuted ? 'Unmute Player' : 'Mute Player'}">
+            <i class="fas ${this.isPlayerMuted ? 'fa-volume-mute' : 'fa-volume-up'}"></i>
+          </button>
+        </div>
       `;
     }
     
-    // Re-attach event listeners for DJ controls
+    // Re-attach event listeners
     if (this.isDJ) {
       const playBtn = transportContainer.querySelector('.play-btn');
       const pauseBtn = transportContainer.querySelector('.pause-btn');
+      const nextBtn = transportContainer.querySelector('.next-btn');
       
       playBtn?.addEventListener('click', this._onPlayClick.bind(this));
       pauseBtn?.addEventListener('click', this._onPauseClick.bind(this));
+      nextBtn?.addEventListener('click', this._onNextClick.bind(this));
     }
+    
+    // Mute button for both DJ and listeners
+    const muteBtn = transportContainer.querySelector('.mute-player-btn');
+    muteBtn?.addEventListener('click', this._onMutePlayerClick.bind(this));
     
     // Update seek section for DJ
     this._updateSeekSection();
@@ -2076,11 +3227,19 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
             >
             <button 
               type="button" 
-              class="load-video-btn"
+              class="add-to-queue-btn"
               ${this.playerReady ? '' : 'disabled'}
             >
               <i class="fas fa-plus"></i>
-              Load Video
+              Add to Queue
+            </button>
+            <button 
+              type="button" 
+              class="load-video-btn"
+              ${this.playerReady ? '' : 'disabled'}
+            >
+              <i class="fas fa-play"></i>
+              Play Now
             </button>
           </div>
         `;
@@ -2093,18 +3252,24 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         
         // Attach event listeners
         const urlInput = urlInputSection.querySelector('.youtube-url-input');
+        const addToQueueBtn = urlInputSection.querySelector('.add-to-queue-btn');
         const loadBtn = urlInputSection.querySelector('.load-video-btn');
         
         urlInput?.addEventListener('keypress', this._onUrlInputKeypress.bind(this));
+        addToQueueBtn?.addEventListener('click', this._onAddToQueueClick.bind(this));
         loadBtn?.addEventListener('click', this._onLoadVideoClick.bind(this));
       }
       
       // Update input and button state
       const urlInput = urlInputSection.querySelector('.youtube-url-input') as HTMLInputElement;
+      const addToQueueBtn = urlInputSection.querySelector('.add-to-queue-btn') as HTMLButtonElement;
       const loadBtn = urlInputSection.querySelector('.load-video-btn') as HTMLButtonElement;
       
       if (urlInput) {
         urlInput.disabled = !this.playerReady;
+      }
+      if (addToQueueBtn) {
+        addToQueueBtn.disabled = !this.playerReady;
       }
       if (loadBtn) {
         loadBtn.disabled = !this.playerReady;
@@ -2134,11 +3299,19 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     djControlsContainer.innerHTML = '';
     
     if (this.isDJ) {
+      // Create DJ controls with handoff option
+      const canHandoffDJ = this.sessionMembers.length > 1;
       djControlsContainer.innerHTML = `
         <button type="button" class="release-dj-btn">
           <i class="fas fa-crown"></i>
           Release DJ
         </button>
+        ${canHandoffDJ ? `
+        <button type="button" class="handoff-dj-btn">
+          <i class="fas fa-exchange-alt"></i>
+          Hand Off
+        </button>
+        ` : ''}
       `;
     } else {
       djControlsContainer.innerHTML = `
@@ -2146,12 +3319,29 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           <i class="fas fa-microphone"></i>
           Become DJ
         </button>
+        <button type="button" class="request-dj-btn">
+          <i class="fas fa-hand-paper"></i>
+          Request DJ
+        </button>
       `;
     }
     
-    // Re-attach event listeners
+    // Add GM Override button if user is GM
+    if (game.user?.isGM) {
+      djControlsContainer.innerHTML += `
+        <button type="button" class="gm-override-btn">
+          <i class="fas fa-gavel"></i>
+          GM Override
+        </button>
+      `;
+    }
+    
+    // Re-attach event listeners for all buttons
     djControlsContainer.querySelector('.claim-dj-btn')?.addEventListener('click', this._onClaimDJClick.bind(this));
     djControlsContainer.querySelector('.release-dj-btn')?.addEventListener('click', this._onReleaseDJClick.bind(this));
+    djControlsContainer.querySelector('.handoff-dj-btn')?.addEventListener('click', this._onHandoffDJClick.bind(this));
+    djControlsContainer.querySelector('.request-dj-btn')?.addEventListener('click', this._onRequestDJClick.bind(this));
+    djControlsContainer.querySelector('.gm-override-btn')?.addEventListener('click', this._onGMOverrideClick.bind(this));
   }
 
   /**
@@ -2202,6 +3392,84 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         sessionMembersSection.style.display = 'none';
       }
     }
+  }
+
+  /**
+   * MVP-U4: Ensure queue section exists after joining session
+   */
+  private _ensureQueueSectionExists(): void {
+    // Check if queue section already exists
+    let queueSection = this.element.querySelector('.queue-section');
+    if (queueSection) {
+      console.log('🎵 YouTube DJ | Queue section already exists');
+      this._updateQueueUI();
+      return;
+    }
+    
+    console.log('🎵 YouTube DJ | Creating queue section dynamically');
+    
+    // Create the queue section
+    queueSection = document.createElement('div');
+    queueSection.className = 'queue-section';
+    
+    queueSection.innerHTML = `
+      <div class="queue-header">
+        <h3>
+          <i class="fas fa-list"></i>
+          Queue (${this.queueState.items.length} videos)
+        </h3>
+        ${this.isDJ ? `
+        <div class="queue-controls">
+          <button type="button" class="next-btn queue-btn" ${this.queueState.items.length === 0 ? 'disabled' : ''}>
+            <i class="fas fa-step-forward"></i>
+            Next
+          </button>
+        </div>
+        ` : ''}
+      </div>
+      
+      <div class="queue-list">
+        ${this.queueState.items.length === 0 ? `
+        <div class="queue-empty">
+          <i class="fas fa-music"></i>
+          <p>No videos in queue</p>
+          ${this.isDJ ? '<p>Add videos using the input below</p>' : ''}
+        </div>
+        ` : this.queueState.items.map((item, index) => `
+        <div class="queue-item ${index === this.queueState.currentIndex ? 'current-video' : ''}" data-index="${index}">
+          <div class="queue-item-info">
+            <span class="queue-item-title">${item.title || item.videoId}</span>
+            <span class="queue-item-meta">Added by ${item.addedBy}</span>
+          </div>
+          ${this.isDJ ? `<button type="button" class="remove-queue-btn" data-queue-id="${item.id}"><i class="fas fa-times"></i></button>` : ''}
+        </div>
+        `).join('')}
+      </div>
+    `;
+    
+    // Insert after player section
+    const playerSection = this.element.querySelector('.player-section');
+    if (playerSection) {
+      playerSection.insertAdjacentElement('afterend', queueSection);
+    } else {
+      // Fallback: insert at beginning of content
+      const contentDiv = this.element.querySelector('.youtube-dj-content');
+      if (contentDiv) {
+        contentDiv.appendChild(queueSection);
+      }
+    }
+    
+    // Attach event listeners
+    if (this.isDJ) {
+      const nextBtn = queueSection.querySelector('.next-btn');
+      nextBtn?.addEventListener('click', this._onNextClick.bind(this));
+      
+      queueSection.querySelectorAll('.remove-queue-btn').forEach(btn => {
+        btn.addEventListener('click', this._onRemoveQueueClick.bind(this));
+      });
+    }
+    
+    console.log('🎵 YouTube DJ | Queue section created and attached');
   }
 
   /**
@@ -2272,6 +3540,542 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       });
     } else {
       console.warn('🎵 YouTube DJ | Cannot broadcast - not connected');
+    }
+  }
+
+  /**
+   * MVP-U5: Broadcast message with retry mechanism
+   */
+  private _broadcastMessageWithRetry(message: YouTubeDJMessage, maxRetries: number = 3): void {
+    let attempts = 0;
+    
+    const attemptBroadcast = () => {
+      attempts++;
+      
+      if (!this.isConnected) {
+        if (attempts < maxRetries) {
+          console.log(`🎵 YouTube DJ | Not connected, retry ${attempts}/${maxRetries} in 1s`);
+          setTimeout(attemptBroadcast, 1000);
+          return;
+        } else {
+          console.error('🎵 YouTube DJ | Failed to broadcast after retries - not connected');
+          ui.notifications?.warn('Message may not have reached other clients (connection issue)');
+          return;
+        }
+      }
+      
+      try {
+        this._broadcastMessage(message);
+        console.log(`🎵 YouTube DJ | Message broadcast successful on attempt ${attempts}`);
+      } catch (error) {
+        console.error(`🎵 YouTube DJ | Broadcast attempt ${attempts} failed:`, error);
+        
+        if (attempts < maxRetries) {
+          console.log(`🎵 YouTube DJ | Retrying broadcast in 1s...`);
+          setTimeout(attemptBroadcast, 1000);
+        } else {
+          console.error('🎵 YouTube DJ | All broadcast attempts failed');
+          ui.notifications?.warn('Message may not have reached other clients');
+        }
+      }
+    };
+    
+    attemptBroadcast();
+  }
+
+  /**
+   * MVP-U5: Setup connection monitoring and recovery
+   */
+  private _setupConnectionMonitoring(): void {
+    // Monitor socket connection status
+    const checkConnection = () => {
+      const wasConnected = this.isConnected;
+      this.isConnected = game.socket?.connected || false;
+      
+      if (wasConnected && !this.isConnected) {
+        console.warn('🎵 YouTube DJ | Connection lost');
+        ui.notifications?.warn('Connection lost - attempting to reconnect...');
+        this._onConnectionLost();
+      } else if (!wasConnected && this.isConnected) {
+        console.log('🎵 YouTube DJ | Connection restored');
+        ui.notifications?.info('Connection restored');
+        this._onConnectionRestored();
+      }
+    };
+    
+    // Check connection every 5 seconds
+    setInterval(checkConnection, 5000);
+    
+    // Also listen to FoundryVTT socket events if available
+    if (game.socket) {
+      game.socket.on('connect', () => {
+        console.log('🎵 YouTube DJ | Socket connected');
+        this.isConnected = true;
+        this._onConnectionRestored();
+      });
+      
+      game.socket.on('disconnect', () => {
+        console.log('🎵 YouTube DJ | Socket disconnected');
+        this.isConnected = false;
+        this._onConnectionLost();
+      });
+    }
+  }
+
+  /**
+   * MVP-U5: Handle connection loss
+   */
+  private _onConnectionLost(): void {
+    // Stop heartbeat to avoid errors
+    this._stopHeartbeat();
+    
+    // Mark as disconnected
+    this.isConnected = false;
+    
+    // Update UI to show disconnected state
+    const statusElements = this.element.querySelectorAll('.connection-status');
+    statusElements.forEach(el => {
+      el.textContent = 'Disconnected';
+      el.className = 'connection-status status-inactive';
+    });
+  }
+
+  /**
+   * MVP-U5: Handle connection restoration
+   */
+  private _onConnectionRestored(): void {
+    this.isConnected = true;
+    
+    // Restart heartbeat if we're the DJ
+    if (this.isDJ && this.playerReady) {
+      this._startHeartbeat();
+    }
+    
+    // Request state sync to catch up on any missed updates
+    setTimeout(() => {
+      console.log('🎵 YouTube DJ | Requesting state sync after reconnection');
+      this._requestSessionState();
+    }, 1000);
+    
+    // Update UI to show connected state
+    const statusElements = this.element.querySelectorAll('.connection-status');
+    statusElements.forEach(el => {
+      el.textContent = 'Connected';
+      el.className = 'connection-status status-active';
+    });
+  }
+
+  /**
+   * MVP-U5: Fetch video title asynchronously and update queue item
+   */
+  private async _fetchVideoTitle(videoId: string, queueItemId: string): Promise<void> {
+    try {
+      // This is a basic implementation - in a real application you would use YouTube API
+      // For now, we'll use the YouTube oEmbed API which doesn't require authentication
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+      
+      const response = await fetch(oembedUrl);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.title) {
+          // Find the queue item and update its title
+          const queueItem = this.queueState.items.find(item => item.id === queueItemId);
+          if (queueItem) {
+            queueItem.title = data.title;
+            
+            // Save the updated state
+            this._saveWorldState();
+            
+            // Update UI
+            this._updateQueueUI();
+            
+            console.log(`🎵 YouTube DJ | Fetched title for ${videoId}: ${data.title}`);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn(`🎵 YouTube DJ | Failed to fetch title for ${videoId}:`, error);
+      // Don't show error to user - this is optional enhancement
+    }
+  }
+
+  /**
+   * MVP-U5: Validate YouTube video availability
+   */
+  private async _validateVideoAvailability(videoId: string): Promise<boolean> {
+    try {
+      // Check if video exists using oEmbed API
+      const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${videoId}&format=json`;
+      
+      const response = await fetch(oembedUrl);
+      return response.ok;
+    } catch (error) {
+      console.warn(`🎵 YouTube DJ | Failed to validate video ${videoId}:`, error);
+      return false; // Assume invalid if we can't check
+    }
+  }
+
+  /**
+   * MVP-U5: Handle YouTube API errors gracefully
+   */
+  private _handleYouTubeAPIError(error: any, videoId?: string): void {
+    console.error('🎵 YouTube DJ | YouTube API Error:', error);
+    
+    let userMessage = 'YouTube player error occurred';
+    
+    // Handle specific YouTube API error codes
+    if (error.data) {
+      switch (error.data) {
+        case 2:
+          userMessage = 'Invalid video ID format';
+          break;
+        case 5:
+          userMessage = 'Video cannot be played in embedded players';
+          break;
+        case 100:
+          userMessage = 'Video not found or private';
+          break;
+        case 101:
+        case 150:
+          userMessage = 'Video not available for embedded playback';
+          break;
+        default:
+          userMessage = `YouTube error (code ${error.data})`;
+      }
+    }
+    
+    if (videoId) {
+      userMessage += ` for video: ${videoId}`;
+    }
+    
+    ui.notifications?.error(userMessage);
+    
+    // If this was a queue video, try to skip to next
+    if (this.isDJ && this.queueState.items.length > 0) {
+      console.log('🎵 YouTube DJ | Attempting to skip to next video due to error');
+      setTimeout(() => {
+        this._playNextInQueue();
+      }, 2000);
+    }
+  }
+
+  /**
+   * MVP-U5: Enhanced queue UI updates with loading states
+   */
+  private _updateQueueUIWithLoadingState(isLoading: boolean = false): void {
+    const queueSection = this.element.querySelector('.queue-section');
+    if (!queueSection) return;
+    
+    if (isLoading) {
+      // Add loading indicator
+      let loadingIndicator = queueSection.querySelector('.queue-loading');
+      if (!loadingIndicator) {
+        loadingIndicator = document.createElement('div');
+        loadingIndicator.className = 'queue-loading';
+        loadingIndicator.innerHTML = `
+          <i class="fas fa-spinner fa-spin"></i>
+          <span>Loading...</span>
+        `;
+        queueSection.appendChild(loadingIndicator);
+      }
+    } else {
+      // Remove loading indicator
+      const loadingIndicator = queueSection.querySelector('.queue-loading');
+      if (loadingIndicator) {
+        loadingIndicator.remove();
+      }
+    }
+    
+    // Update the regular queue UI
+    this._updateQueueUI();
+  }
+
+  /**
+   * MVP-U6: Show handoff dialog
+   */
+  private _showHandoffDialog(): void {
+    const users = this.sessionMembers.filter(member => member.id !== game.user?.id);
+    
+    if (users.length === 0) {
+      ui.notifications?.warn('No other users available to hand off DJ role');
+      return;
+    }
+    
+    // Create simple dialog with user list
+    const content = `
+      <div class="handoff-dialog">
+        <h3>Hand off DJ role to:</h3>
+        <div class="user-list">
+          ${users.map(user => `
+            <button class="handoff-user-btn" data-user-id="${user.id}">
+              <i class="fas fa-user"></i>
+              ${user.name}
+            </button>
+          `).join('')}
+        </div>
+      </div>
+    `;
+    
+    new Dialog({
+      title: 'Hand off DJ Role',
+      content: content,
+      buttons: {
+        cancel: {
+          label: 'Cancel',
+          callback: () => {}
+        }
+      },
+      render: (html) => {
+        html.find('.handoff-user-btn').click((event) => {
+          const userId = event.currentTarget.dataset.userId;
+          if (userId) {
+            this._handoffDJToUser(userId);
+          }
+        });
+      }
+    }).render(true);
+  }
+  
+  /**
+   * MVP-U6: Hand off DJ role to specific user
+   */
+  private _handoffDJToUser(userId: string): void {
+    const targetUser = game.users?.get(userId);
+    if (!targetUser) {
+      ui.notifications?.error('Target user not found');
+      return;
+    }
+    
+    console.log(`🎵 YouTube DJ | Handing off DJ role to ${targetUser.name}`);
+    
+    // Update local state
+    this.isDJ = false;
+    this.djUserId = userId;
+    
+    // Save to world state
+    this._saveWorldState();
+    
+    // Broadcast handoff message
+    this._broadcastMessage({
+      type: 'DJ_HANDOFF',
+      data: { 
+        newDJ: userId,
+        previousDJ: game.user?.id 
+      },
+      userId: game.user?.id || '',
+      timestamp: Date.now()
+    });
+    
+    // Update UI
+    this._updateDJControls();
+    this._updateDJStatusHeader();
+    this._updateTransportControls();
+    this._updateSessionMembersUI();
+    
+    ui.notifications?.success(`DJ role handed off to ${targetUser.name}`);
+  }
+  
+  /**
+   * MVP-U6: Remove DJ request from list
+   */
+  private _removeDJRequest(userId: string): void {
+    this.djRequests = this.djRequests.filter(req => req.userId !== userId);
+    this._updateDJRequestsUI();
+  }
+  
+  
+  /**
+   * MVP-U6: Update DJ requests UI
+   */
+  private _updateDJRequestsUI(): void {
+    // Only show requests to the current DJ
+    if (!this.isDJ) {
+      // Remove requests container if user is not DJ
+      const requestsContainer = this.element.querySelector('.dj-requests');
+      if (requestsContainer) {
+        requestsContainer.remove();
+      }
+      return;
+    }
+    
+    // Find or create requests container
+    let requestsContainer = this.element.querySelector('.dj-requests');
+    
+    if (this.djRequests.length === 0) {
+      if (requestsContainer) {
+        requestsContainer.style.display = 'none';
+      }
+      return;
+    }
+    
+    // Create requests container if it doesn't exist
+    if (!requestsContainer) {
+      requestsContainer = document.createElement('div');
+      requestsContainer.className = 'dj-requests';
+      requestsContainer.innerHTML = `
+        <div class="requests-header">
+          <h3>
+            <i class="fas fa-hand-paper"></i>
+            DJ Requests (${this.djRequests.length})
+          </h3>
+        </div>
+        <div class="dj-requests-list"></div>
+      `;
+      
+      // Insert after session members section
+      const sessionMembers = this.element.querySelector('.session-members');
+      if (sessionMembers) {
+        sessionMembers.insertAdjacentElement('afterend', requestsContainer);
+      }
+    }
+    
+    requestsContainer.style.display = 'block';
+    
+    // Update the header count
+    const headerH3 = requestsContainer.querySelector('.requests-header h3');
+    if (headerH3) {
+      headerH3.innerHTML = `
+        <i class="fas fa-hand-paper"></i>
+        DJ Requests (${this.djRequests.length})
+      `;
+    }
+    
+    // Update the requests list
+    const requestsList = requestsContainer.querySelector('.dj-requests-list');
+    if (requestsList) {
+      requestsList.innerHTML = this.djRequests.map(request => `
+        <div class="dj-request-item">
+          <span class="requester-name">${request.userName}</span>
+          <div class="request-actions">
+            <button class="approve-dj-request-btn" data-requester-id="${request.userId}">
+              <i class="fas fa-check"></i> Approve
+            </button>
+            <button class="deny-dj-request-btn" data-requester-id="${request.userId}">
+              <i class="fas fa-times"></i> Deny
+            </button>
+          </div>
+        </div>
+      `).join('');
+      
+      // Re-attach event listeners
+      requestsList.querySelectorAll('.approve-dj-request-btn').forEach(btn => {
+        btn.addEventListener('click', this._onApproveDJRequestClick.bind(this));
+      });
+      requestsList.querySelectorAll('.deny-dj-request-btn').forEach(btn => {
+        btn.addEventListener('click', this._onDenyDJRequestClick.bind(this));
+      });
+    }
+  }
+  
+  /**
+   * Move queue item up one position
+   */
+  private _moveQueueItemUp(index: number): void {
+    if (index <= 0 || index >= this.queueState.items.length) return;
+    
+    console.log(`🎵 YouTube DJ | Moving queue item up: ${index} -> ${index - 1}`);
+    
+    // Create a copy of the queue
+    const newQueue = [...this.queueState.items];
+    
+    // Swap with previous item
+    [newQueue[index - 1], newQueue[index]] = [newQueue[index], newQueue[index - 1]];
+    
+    // Update currentIndex if it's affected by the move
+    if (this.queueState.currentIndex === index) {
+      // Moving the current video up
+      this.queueState.currentIndex = index - 1;
+      console.log(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (moved current video up)`);
+    } else if (this.queueState.currentIndex === index - 1) {
+      // Moving something up that displaces the current video down
+      this.queueState.currentIndex = index;
+      console.log(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (current video displaced down)`);
+    }
+    
+    // Update the queue state
+    this.queueState.items = newQueue;
+    
+    // Save and broadcast
+    this._saveWorldState();
+    this._broadcastMessage({
+      type: 'QUEUE_UPDATE',
+      data: {
+        queue: this.queueState
+      },
+      userId: game.user?.id || 'unknown',
+      timestamp: Date.now()
+    });
+    
+    // Update the UI
+    this._updateQueueUI();
+    
+    ui.notifications?.info('Queue item moved up');
+  }
+
+  /**
+   * Move queue item down one position
+   */
+  private _moveQueueItemDown(index: number): void {
+    if (index < 0 || index >= this.queueState.items.length - 1) return;
+    
+    console.log(`🎵 YouTube DJ | Moving queue item down: ${index} -> ${index + 1}`);
+    
+    // Create a copy of the queue
+    const newQueue = [...this.queueState.items];
+    
+    // Swap with next item
+    [newQueue[index], newQueue[index + 1]] = [newQueue[index + 1], newQueue[index]];
+    
+    // Update currentIndex if it's affected by the move
+    if (this.queueState.currentIndex === index) {
+      // Moving the current video down
+      this.queueState.currentIndex = index + 1;
+      console.log(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (moved current video down)`);
+    } else if (this.queueState.currentIndex === index + 1) {
+      // Moving something down that displaces the current video up
+      this.queueState.currentIndex = index;
+      console.log(`🎵 YouTube DJ | Updated currentIndex to ${this.queueState.currentIndex} (current video displaced up)`);
+    }
+    
+    // Update the queue state
+    this.queueState.items = newQueue;
+    
+    // Save and broadcast
+    this._saveWorldState();
+    this._broadcastMessage({
+      type: 'QUEUE_UPDATE',
+      data: {
+        queue: this.queueState
+      },
+      userId: game.user?.id || 'unknown',
+      timestamp: Date.now()
+    });
+    
+    // Update the UI
+    this._updateQueueUI();
+    
+    ui.notifications?.info('Queue item moved down');
+  }
+
+  /**
+   * Handle move up button click
+   */
+  private _onMoveUpClick(event: Event): void {
+    const button = event.target as HTMLElement;
+    const index = parseInt(button.dataset.index || '-1');
+    if (index !== -1) {
+      this._moveQueueItemUp(index);
+    }
+  }
+
+  /**
+   * Handle move down button click
+   */
+  private _onMoveDownClick(event: Event): void {
+    const button = event.target as HTMLElement;
+    const index = parseInt(button.dataset.index || '-1');
+    if (index !== -1) {
+      this._moveQueueItemDown(index);
     }
   }
 

@@ -54,6 +54,21 @@ Hooks.once('init', () => {
     default: []
   });
 
+  // MVP-U4: Queue state setting
+  game.settings.register('core', 'youtubeDJ.queueState', {
+    name: 'YouTube DJ Queue State',
+    hint: 'Current queue state with videos and index',
+    scope: 'world',
+    config: false,
+    type: Object,
+    default: {
+      items: [],
+      currentIndex: -1,
+      mode: 'single-dj',
+      djUserId: null
+    }
+  });
+
   console.log(`${MODULE_ID} | YouTube DJ world settings registered`);
   
   // Register module API globally
