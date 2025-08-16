@@ -906,15 +906,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       return;
     }
     
-    // Check if there's a next video in the queue
-    const nextIndex = this.queueState.currentIndex + 1;
-    if (nextIndex < this.queueState.items.length) {
-      logger.debug('🎵 YouTube DJ | Auto-advancing to next video in queue');
-      this._playNextInQueue();
-    } else {
-      logger.debug('🎵 YouTube DJ | Reached end of queue, no auto-advance');
-      ui.notifications?.info('Queue finished - add more videos or manually restart');
-    }
+    // Always auto-advance - _playNextInQueue handles queue restart logic
+    logger.debug('🎵 YouTube DJ | Auto-advancing to next video in queue');
+    this._playNextInQueue();
   }
 
   /**
