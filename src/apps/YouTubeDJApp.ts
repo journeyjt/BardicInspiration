@@ -695,36 +695,51 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Lock container DOM to prevent external modifications
    */
   private _lockContainerDOM(container: Element): void {
+    // Check if already locked to prevent "Cannot redefine property" error
+    const descriptor = Object.getOwnPropertyDescriptor(container, 'innerHTML');
+    if (descriptor && descriptor.set && descriptor.set.toString().includes('youtube-player')) {
+      logger.debug('🎵 YouTube DJ | Container DOM already locked, skipping');
+      return;
+    }
+    
     // Override innerHTML setter to prevent clearing
     const originalInnerHTML = Object.getOwnPropertyDescriptor(Element.prototype, 'innerHTML');
     if (originalInnerHTML) {
-      Object.defineProperty(container, 'innerHTML', {
-        get: originalInnerHTML.get,
-        set: function(value: string) {
-          // Only allow setting if it contains our player or is empty initialization
-          if (value.includes('youtube-player') || value.includes('<!-- YouTube player will be inserted here -->')) {
-            logger.debug('🎵 YouTube DJ | Allowing innerHTML change:', value.substring(0, 50) + '...');
-            originalInnerHTML.set?.call(this, value);
+      try {
+        Object.defineProperty(container, 'innerHTML', {
+          get: originalInnerHTML.get,
+          set: function(value: string) {
+            // Only allow setting if it contains our player or is empty initialization
+            if (value.includes('youtube-player') || value.includes('<!-- YouTube player will be inserted here -->')) {
+              logger.debug('🎵 YouTube DJ | Allowing innerHTML change:', value.substring(0, 50) + '...');
+              originalInnerHTML.set?.call(this, value);
           } else {
             logger.warn('🎵 YouTube DJ | BLOCKED innerHTML change that would remove player:', value.substring(0, 50) + '...');
           }
         }
       });
+      } catch (error) {
+        logger.debug('🎵 YouTube DJ | Could not lock container DOM (already locked):', error);
+      }
     }
     
     // Override removeChild to prevent player removal
-    const originalRemoveChild = container.removeChild;
-    container.removeChild = function(child: Node) {
-      if (child.nodeType === Node.ELEMENT_NODE) {
-        const element = child as Element;
-        if (element.id === 'youtube-player' || element.querySelector('#youtube-player')) {
-          logger.error('🎵 YouTube DJ | BLOCKED attempt to remove YouTube player!');
-          logger.debug('🎵 YouTube DJ | Removal attempt stack trace');
-          return child; // Pretend we removed it but don't actually do it
+    try {
+      const originalRemoveChild = container.removeChild;
+      container.removeChild = function(child: Node) {
+        if (child.nodeType === Node.ELEMENT_NODE) {
+          const element = child as Element;
+          if (element.id === 'youtube-player' || element.querySelector('#youtube-player')) {
+            logger.error('🎵 YouTube DJ | BLOCKED attempt to remove YouTube player!');
+            logger.debug('🎵 YouTube DJ | Removal attempt stack trace');
+            return child; // Pretend we removed it but don't actually do it
+          }
         }
-      }
-      return originalRemoveChild.call(this, child);
-    };
+        return originalRemoveChild.call(this, child);
+      };
+    } catch (error) {
+      logger.debug('🎵 YouTube DJ | Could not override removeChild (already overridden):', error);
+    }
     
     logger.debug('🎵 YouTube DJ | Container DOM locked against modifications');
   }
@@ -1694,6 +1709,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Update player status UI without full re-render
    */
   private _updatePlayerStatusUI(): void {
+    // Check if element exists before trying to update
+    if (!this.element) {
+      logger.debug('🎵 YouTube DJ | Application element not available, skipping player status update');
+      return;
+    }
+    
     // Update player ready status
     const playerStatusElement = this.element.querySelector('.player-status');
     if (playerStatusElement) {
@@ -2956,6 +2977,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * MVP-U4: Update queue UI without full re-render
    */
   private _updateQueueUI(): void {
+    // Check if element exists before trying to update
+    if (!this.element) {
+      logger.debug('🎵 YouTube DJ | Application element not available, skipping queue update');
+      return;
+    }
+    
     const queueSection = this.element.querySelector('.queue-section');
     if (!queueSection) {
       logger.debug('🎵 YouTube DJ | Queue section not found, creating it');
@@ -3005,19 +3032,19 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
             ` : ''}
           </div>
         `).join('');
-        
-        // Re-attach event listeners for queue control buttons
-        if (this.isDJ) {
-          queueList.querySelectorAll('.remove-queue-btn').forEach(btn => {
-            btn.addEventListener('click', this._onRemoveQueueClick.bind(this));
-          });
-          queueList.querySelectorAll('.move-up-btn').forEach(btn => {
-            btn.addEventListener('click', this._onMoveUpClick.bind(this));
-          });
-          queueList.querySelectorAll('.move-down-btn').forEach(btn => {
-            btn.addEventListener('click', this._onMoveDownClick.bind(this));
-          });
-        }
+      }
+      
+      // Re-attach event listeners for queue control buttons after innerHTML replacement
+      if (this.isDJ) {
+        queueList.querySelectorAll('.remove-queue-btn').forEach(btn => {
+          btn.addEventListener('click', this._onRemoveQueueClick.bind(this));
+        });
+        queueList.querySelectorAll('.move-up-btn').forEach(btn => {
+          btn.addEventListener('click', this._onMoveUpClick.bind(this));
+        });
+        queueList.querySelectorAll('.move-down-btn').forEach(btn => {
+          btn.addEventListener('click', this._onMoveDownClick.bind(this));
+        });
       }
     }
     
@@ -3034,6 +3061,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Update session members UI without full re-render
    */
   private _updateSessionMembersUI(): void {
+    // Check if element exists before trying to update
+    if (!this.element) {
+      logger.debug('🎵 YouTube DJ | Application element not available, skipping members update');
+      return;
+    }
+    
     // Update only the session members section without destroying player
     const membersContainer = this.element.querySelector('.members-list');
     if (!membersContainer) {
@@ -3391,6 +3424,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * Update join session UI without full re-render
    */
   private _updateJoinSessionUI(): void {
+    // Check if element exists before trying to update
+    if (!this.element) {
+      logger.debug('🎵 YouTube DJ | Application element not available, skipping join session update');
+      return;
+    }
+    
     const joinSection = this.element.querySelector('.join-session');
     const sessionMembersSection = this.element.querySelector('.session-members');
     
@@ -3784,6 +3823,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * MVP-U5: Enhanced queue UI updates with loading states
    */
   private _updateQueueUIWithLoadingState(isLoading: boolean = false): void {
+    // Check if element exists before trying to update
+    if (!this.element) {
+      logger.debug('🎵 YouTube DJ | Application element not available, skipping queue loading state update');
+      return;
+    }
+    
     const queueSection = this.element.querySelector('.queue-section');
     if (!queueSection) return;
     
@@ -3822,39 +3867,54 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       return;
     }
     
-    // Create simple dialog with user list
-    const content = `
-      <div class="handoff-dialog">
-        <h3>Hand off DJ role to:</h3>
-        <div class="user-list">
-          ${users.map(user => `
-            <button class="handoff-user-btn" data-user-id="${user.id}">
-              <i class="fas fa-user"></i>
-              ${user.name}
-            </button>
-          `).join('')}
-        </div>
+    // Create a simple inline UI instead of a dialog
+    const container = this.element.querySelector('.dj-controls');
+    if (!container) return;
+    
+    // Create handoff selector inline
+    const handoffHtml = `
+      <div class="handoff-selector" style="display: flex; gap: 0.5rem; align-items: center; padding: 0.5rem; background: var(--bardic-inspiration-bg-secondary); border-radius: 0.375rem; margin-top: 0.5rem;">
+        <select id="handoff-user-select" style="flex: 1; padding: 0.25rem; border-radius: 0.25rem;">
+          <option value="">-- Select User --</option>
+          ${users.map(user => `<option value="${user.id}">${user.name}</option>`).join('')}
+        </select>
+        <button type="button" class="confirm-handoff-btn" style="padding: 0.25rem 0.75rem; background: var(--bardic-inspiration-primary); color: white; border: none; border-radius: 0.25rem; cursor: pointer;">
+          <i class="fas fa-check"></i> Confirm
+        </button>
+        <button type="button" class="cancel-handoff-btn" style="padding: 0.25rem 0.75rem; background: var(--bardic-inspiration-danger); color: white; border: none; border-radius: 0.25rem; cursor: pointer;">
+          <i class="fas fa-times"></i> Cancel
+        </button>
       </div>
     `;
     
-    new Dialog({
-      title: 'Hand off DJ Role',
-      content: content,
-      buttons: {
-        cancel: {
-          label: 'Cancel',
-          callback: () => {}
-        }
-      },
-      render: (html) => {
-        html.find('.handoff-user-btn').click((event) => {
-          const userId = event.currentTarget.dataset.userId;
-          if (userId) {
-            this._handoffDJToUser(userId);
-          }
-        });
+    // Check if selector already exists and remove it
+    const existingSelector = container.querySelector('.handoff-selector');
+    if (existingSelector) {
+      existingSelector.remove();
+    }
+    
+    // Add the selector
+    container.insertAdjacentHTML('afterend', handoffHtml);
+    
+    // Add event listeners
+    const confirmBtn = this.element.querySelector('.confirm-handoff-btn');
+    const cancelBtn = this.element.querySelector('.cancel-handoff-btn');
+    const selector = this.element.querySelector('.handoff-selector');
+    
+    confirmBtn?.addEventListener('click', () => {
+      const select = this.element.querySelector('#handoff-user-select') as HTMLSelectElement;
+      const userId = select?.value;
+      if (userId) {
+        this._handoffDJToUser(userId);
+        selector?.remove();
+      } else {
+        ui.notifications?.warn('Please select a user');
       }
-    }).render(true);
+    });
+    
+    cancelBtn?.addEventListener('click', () => {
+      selector?.remove();
+    });
   }
   
   /**
@@ -3909,6 +3969,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    * MVP-U6: Update DJ requests UI
    */
   private _updateDJRequestsUI(): void {
+    // Check if element exists before trying to update
+    if (!this.element) {
+      logger.debug('🎵 YouTube DJ | Application element not available, skipping DJ requests update');
+      return;
+    }
+    
     // Only show requests to the current DJ
     if (!this.isDJ) {
       // Remove requests container if user is not DJ
