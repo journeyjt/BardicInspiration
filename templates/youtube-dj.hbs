@@ -17,19 +17,58 @@
     </div>
   </header>
 
-  <!-- Autoplay Consent Section -->
-  {{#unless hasAutoplayConsent}}
-  <div class="autoplay-consent">
-    <div class="consent-info">
-      <i class="fas fa-info-circle"></i>
-      <p>To enable synchronized playback, click the button below to grant autoplay permission.</p>
+  <!-- Join Session Section (only when not joined) -->
+  {{#unless hasJoinedSession}}
+  <div class="join-session">
+    <div class="join-info">
+      <i class="fas fa-users"></i>
+      <p>Ready to join the synchronized YouTube DJ session?</p>
+      <p>This will create the video player and enable audio playback.</p>
     </div>
-    <button type="button" class="enable-autoplay-btn">
-      <i class="fas fa-play"></i>
-      Enable Synchronized Playback
+    <button type="button" class="join-session-btn">
+      <i class="fas fa-play-circle"></i>
+      Join Session
     </button>
   </div>
   {{/unless}}
+
+  <!-- Session Members Section (only when joined) -->
+  {{#if hasJoinedSession}}
+  <div class="session-members">
+    <div class="members-header">
+      <i class="fas fa-users"></i>
+      <h3>Session Members</h3>
+      <div class="dj-controls">
+        {{#if isDJ}}
+        <button type="button" class="release-dj-btn">
+          <i class="fas fa-crown"></i>
+          Release DJ
+        </button>
+        {{else}}
+        <button type="button" class="claim-dj-btn">
+          <i class="fas fa-microphone"></i>
+          Become DJ
+        </button>
+        {{/if}}
+      </div>
+    </div>
+    <div class="members-list">
+      {{#each sessionMembers}}
+      <div class="member-item {{#if isDJ}}member-dj{{else}}member-listener{{/if}}">
+        <i class="fas {{#if isDJ}}fa-microphone{{else}}fa-headphones{{/if}}"></i>
+        <span class="member-name">{{name}}</span>
+        {{#if isDJ}}<span class="member-role">DJ</span>{{/if}}
+      </div>
+      {{else}}
+      <div class="member-item">
+        <i class="fas fa-user"></i>
+        <span class="member-name">You</span>
+        {{#if ../isDJ}}<span class="member-role">DJ</span>{{/if}}
+      </div>
+      {{/each}}
+    </div>
+  </div>
+  {{/if}}
 
   <!-- YouTube Player Container -->
   <div class="player-section">
@@ -45,7 +84,8 @@
     </div>
   </div>
 
-  <!-- URL Input Section -->
+  <!-- URL Input Section (DJ only) -->
+  {{#if isDJ}}
   <div class="url-input-section">
     <div class="input-group">
       <input 
@@ -64,6 +104,7 @@
       </button>
     </div>
   </div>
+  {{/if}}
 
   <!-- Transport Controls -->
   <div class="transport-controls">
@@ -71,7 +112,7 @@
       <button 
         type="button" 
         class="play-btn transport-btn"
-        {{#unless hasAutoplayConsent}}disabled{{/unless}}
+        {{#unless isPlayerReady}}disabled{{/unless}}
       >
         <i class="fas fa-play"></i>
         Play
@@ -90,6 +131,24 @@
       </div>
     {{/if}}
   </div>
+
+  <!-- Seek Bar (DJ only) -->
+  {{#if isDJ}}
+  <div class="seek-section">
+    <div class="seek-container">
+      <span class="current-time">0:00</span>
+      <input 
+        type="range" 
+        class="seek-bar" 
+        min="0" 
+        max="100" 
+        value="0"
+        {{#unless isPlayerReady}}disabled{{/unless}}
+      >
+      <span class="total-time">0:00</span>
+    </div>
+  </div>
+  {{/if}}
 
   <!-- Player State Info -->
   <div class="player-info-section">
@@ -127,10 +186,17 @@
 
   <!-- Actions -->
   <div class="youtube-dj-actions">
+    {{#if isPlayerReady}}
     <button type="button" class="recreate-player-btn">
       <i class="fas fa-redo"></i>
       Recreate Player
     </button>
+    {{else}}
+    <button type="button" class="recreate-player-btn">
+      <i class="fas fa-play-circle"></i>
+      Join Session
+    </button>
+    {{/if}}
     <button type="button" class="close-btn">
       <i class="fas fa-times"></i>
       Close

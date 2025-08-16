@@ -107,44 +107,174 @@
   color: #6c757d;
 }
 
-/* Autoplay Consent Section */
-.autoplay-consent {
-  background: rgba(255, 193, 7, 0.1);
-  border: 2px solid #ffc107;
+/* Join Session Section */
+.join-session {
+  background: rgba(40, 167, 69, 0.1);
+  border: 2px solid #28a745;
   border-radius: 8px;
-  padding: 15px;
+  padding: 20px;
   margin-bottom: 20px;
   text-align: center;
 }
 
-.consent-info {
-  margin-bottom: 15px;
-  color: #856404;
+.join-info {
+  margin-bottom: 20px;
+  color: #155724;
 }
 
-.consent-info i {
-  font-size: 1.2em;
+.join-info i {
+  font-size: 1.5em;
   margin-right: 8px;
+  color: #28a745;
 }
 
-.enable-autoplay-btn {
-  background: #ffc107;
-  color: #212529;
+.join-info p {
+  margin: 8px 0;
+  font-size: 1em;
+  line-height: 1.4;
+}
+
+.join-session-btn {
+  background: #28a745;
+  color: white;
   border: none;
-  padding: 12px 24px;
-  border-radius: 6px;
+  padding: 15px 30px;
+  border-radius: 8px;
   font-weight: bold;
+  font-size: 1.1em;
   cursor: pointer;
   transition: all 0.3s ease;
   display: inline-flex;
   align-items: center;
+  gap: 10px;
+}
+
+.join-session-btn:hover {
+  background: #218838;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+}
+
+/* Session Members Section */
+.session-members {
+  background: rgba(23, 162, 184, 0.1);
+  border: 2px solid #17a2b8;
+  border-radius: 8px;
+  padding: 15px;
+  margin-bottom: 20px;
+}
+
+.members-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 15px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #17a2b8;
+}
+
+.members-header i {
+  font-size: 1.2em;
+  margin-right: 8px;
+  color: #17a2b8;
+}
+
+.members-header h3 {
+  margin: 0;
+  color: #17a2b8;
+  font-size: 1.1em;
+  display: flex;
+  align-items: center;
+}
+
+.dj-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.claim-dj-btn, .release-dj-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: bold;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.claim-dj-btn {
+  background: #28a745;
+  color: white;
+}
+
+.claim-dj-btn:hover {
+  background: #218838;
+  transform: translateY(-1px);
+}
+
+.release-dj-btn {
+  background: #dc3545;
+  color: white;
+}
+
+.release-dj-btn:hover {
+  background: #c82333;
+  transform: translateY(-1px);
+}
+
+.members-list {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
 }
 
-.enable-autoplay-btn:hover {
-  background: #e0a800;
-  transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+.member-item {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.5);
+  border-radius: 6px;
+  border-left: 3px solid #6c757d;
+}
+
+.member-item.member-dj {
+  border-left-color: #28a745;
+  background: rgba(40, 167, 69, 0.1);
+}
+
+.member-item.member-listener {
+  border-left-color: #6c757d;
+}
+
+.member-item i {
+  margin-right: 10px;
+  width: 16px;
+  text-align: center;
+}
+
+.member-dj i {
+  color: #28a745;
+}
+
+.member-listener i {
+  color: #6c757d;
+}
+
+.member-name {
+  flex: 1;
+  font-weight: 500;
+}
+
+.member-role {
+  background: #28a745;
+  color: white;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.8em;
+  font-weight: bold;
 }
 
 /* Player Section */
@@ -293,6 +423,76 @@
 
 .listener-info i {
   margin-right: 8px;
+}
+
+/* Seek Bar Section */
+.seek-section {
+  margin-bottom: 20px;
+  padding: 15px;
+  background: rgba(139, 69, 19, 0.1);
+  border-radius: 8px;
+  border-left: 4px solid var(--bardic-inspiration-primary);
+}
+
+.seek-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.current-time,
+.total-time {
+  font-family: monospace;
+  font-size: 0.9em;
+  color: var(--bardic-inspiration-primary);
+  font-weight: bold;
+  min-width: 40px;
+  text-align: center;
+}
+
+.seek-bar {
+  flex: 1;
+  height: 8px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: #ddd;
+  border-radius: 4px;
+  outline: none;
+  cursor: pointer;
+}
+
+.seek-bar::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: var(--bardic-inspiration-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.seek-bar::-webkit-slider-thumb:hover {
+  background: var(--bardic-inspiration-secondary);
+}
+
+.seek-bar::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: var(--bardic-inspiration-primary);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+  transition: background 0.2s ease;
+}
+
+.seek-bar::-moz-range-thumb:hover {
+  background: var(--bardic-inspiration-secondary);
+}
+
+.seek-bar:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Player Info Section */

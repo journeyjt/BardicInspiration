@@ -4,7 +4,7 @@
  */
 
 import { LibWrapperUtils } from './lib/lib-wrapper-utils.js';
-import { YouTubeDJApp } from './apps/HelloWorldApp.js';
+import { YouTubeDJApp } from './apps/YouTubeDJApp.js';
 import './styles/main.css';
 
 const MODULE_ID = 'bardic-inspiration';
@@ -34,6 +34,27 @@ class BardicInspirationAPI implements ModuleAPI {
 // Module initialization
 Hooks.once('init', () => {
   console.log(`${MODULE_ID} | Module initialized`);
+  
+  // Register world-level settings for YouTube DJ
+  game.settings.register('core', 'youtubeDJ.currentDJ', {
+    name: 'YouTube DJ Current DJ',
+    hint: 'The current DJ user ID',
+    scope: 'world',
+    config: false,
+    type: String,
+    default: null
+  });
+
+  game.settings.register('core', 'youtubeDJ.sessionMembers', {
+    name: 'YouTube DJ Session Members',
+    hint: 'Current session members list',
+    scope: 'world',
+    config: false,
+    type: Object,
+    default: []
+  });
+
+  console.log(`${MODULE_ID} | YouTube DJ world settings registered`);
   
   // Register module API globally
   const module = game.modules.get(MODULE_ID);

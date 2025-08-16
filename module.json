@@ -1,8 +1,8 @@
 {
   "id": "bardic-inspiration",
   "title": "Bardic Inspiration",
-  "description": "A Foundry VTT module",
-  "version": "0.5.1",
+  "description": "Synchronized YouTube DJ for Foundry VTT - Play YouTube videos in sync across all players",
+  "version": "0.8.5",
   "compatibility": {
     "minimum": "12",
     "verified": "12.331"
@@ -13,6 +13,7 @@
       "email": "your.email@example.com"
     }
   ],
+  "socket": true,
   "esmodules": [
     "dist/main.js"
   ],
