@@ -106,7 +106,8 @@ export default defineConfig({
 
   // Optimize dependencies
   optimizeDeps: {
-    disabled: 'dev', // Disable dependency optimization in dev mode
+    noDiscovery: true, // Disable dependency discovery in dev mode
+    include: [], // Empty array to disable pre-bundling
     exclude: [
       // Exclude FoundryVTT-specific modules from pre-bundling
     ],

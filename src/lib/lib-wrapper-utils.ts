@@ -3,6 +3,8 @@
  * Safe monkey-patching utilities following best practices
  */
 
+import { logger } from './logger.js';
+
 type WrapperType = 'WRAPPER' | 'MIXED' | 'OVERRIDE' | 'LISTENER';
 type WrapperFunction = (...args: any[]) => any;
 
@@ -28,9 +30,9 @@ export class LibWrapperUtils {
   static registerWrapper(target: string, wrapper: WrapperFunction, type: WrapperType = 'WRAPPER'): void {
     if (this.isLibWrapperAvailable()) {
       libWrapper!.register(this.MODULE_ID, target, wrapper, type);
-      console.log(`${this.MODULE_ID} | Registered ${type} for ${target}`);
+      logger.debug(`Registered ${type} for ${target}`);
     } else {
-      console.warn(`${this.MODULE_ID} | libWrapper not available - falling back to direct method override for ${target}`);
+      logger.warn(`libWrapper not available - falling back to direct method override for ${target}`);
       this.fallbackWrapper(target, wrapper);
     }
   }
@@ -84,9 +86,9 @@ export class LibWrapperUtils {
         return wrapper.call(this, original.bind(this), ...args);
       };
 
-      console.log(`${this.MODULE_ID} | Applied fallback wrapper to ${target}`);
+      logger.debug(`Applied fallback wrapper to ${target}`);
     } catch (error) {
-      console.error(`${this.MODULE_ID} | Failed to apply fallback wrapper to ${target}:`, error);
+      logger.error(`Failed to apply fallback wrapper to ${target}:`, error);
     }
   }
 

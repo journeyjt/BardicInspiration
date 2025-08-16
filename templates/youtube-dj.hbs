@@ -35,9 +35,8 @@
   <!-- Session Members Section (only when joined) -->
   {{#if hasJoinedSession}}
   <div class="session-members">
-    <div class="members-header">
-      <i class="fas fa-users"></i>
-      <h3>Session Members</h3>
+    <!-- Row 1: DJ Control Buttons -->
+    <div class="dj-controls-row">
       <div class="dj-controls">
         {{#if isDJ}}
         <button type="button" class="release-dj-btn">
@@ -67,6 +66,14 @@
         </button>
         {{/if}}
       </div>
+    </div>
+
+    <!-- Row 2: Session Members Title -->
+    <div class="members-title-row">
+      <h3>
+        <i class="fas fa-users"></i>
+        Session Members
+      </h3>
     </div>
     <div class="members-list">
       {{#each sessionMembers}}
@@ -140,38 +147,40 @@
       </h3>
     </div>
     
-    <!-- Transport Controls -->
+    <!-- Transport Controls Container - Always Present -->
     <div class="transport-controls">
-      {{#if isDJ}}
-        <button 
-          type="button" 
-          class="play-btn transport-btn"
-          {{#unless isPlayerReady}}disabled{{/unless}}
-        >
-          <i class="fas fa-play"></i>
-          Play
-        </button>
-        <button 
-          type="button" 
-          class="pause-btn transport-btn"
-        >
-          <i class="fas fa-pause"></i>
-          Pause
-        </button>
-        <button 
-          type="button" 
-          class="next-btn transport-btn"
-          {{#unless hasQueue}}disabled{{/unless}}
-        >
-          <i class="fas fa-step-forward"></i>
-          Next
-        </button>
-      {{else}}
-        <div class="listener-info">
-          <i class="fas fa-info-circle"></i>
-          <p>Playback is controlled by the DJ</p>
-        </div>
-      {{/if}}
+      <div class="transport-buttons">
+        {{#if isDJ}}
+          <button 
+            type="button" 
+            class="play-btn transport-btn"
+            {{#unless isPlayerReady}}disabled{{/unless}}
+          >
+            <i class="fas fa-play"></i>
+            Play
+          </button>
+          <button 
+            type="button" 
+            class="pause-btn transport-btn"
+          >
+            <i class="fas fa-pause"></i>
+            Pause
+          </button>
+          <button 
+            type="button" 
+            class="next-btn transport-btn"
+            {{#unless hasQueue}}disabled{{/unless}}
+          >
+            <i class="fas fa-step-forward"></i>
+            Next
+          </button>
+        {{else}}
+          <div class="listener-info">
+            <i class="fas fa-info-circle"></i>
+            <p>Playback is controlled by the DJ</p>
+          </div>
+        {{/if}}
+      </div>
       
       <!-- MVP-U6: Mute Control -->
       <div class="mute-control">
@@ -198,18 +207,22 @@
       </div>
     </div>
     
-    <!-- URL Input Section -->
-    <div class="url-input-section">
+    {{/if}}
+    
+    <!-- URL Input Section - Always Present -->
+    <div class="url-input-section {{#unless isDJ}}non-dj-disabled{{/unless}}">
       <div class="input-group">
         <input 
           type="text" 
           class="youtube-url-input" 
-          placeholder="Paste YouTube URL or video ID..."
+          placeholder="{{#if isDJ}}Paste YouTube URL or video ID...{{else}}Only the DJ can add videos{{/if}}"
+          {{#unless isDJ}}disabled{{/unless}}
           {{#unless isPlayerReady}}disabled{{/unless}}
         >
         <button 
           type="button" 
           class="add-to-queue-btn"
+          {{#unless isDJ}}disabled{{/unless}}
           {{#unless isPlayerReady}}disabled{{/unless}}
         >
           <i class="fas fa-plus"></i>
@@ -218,6 +231,7 @@
         <button 
           type="button" 
           class="load-video-btn"
+          {{#unless isDJ}}disabled{{/unless}}
           {{#unless isPlayerReady}}disabled{{/unless}}
         >
           <i class="fas fa-play"></i>
@@ -225,7 +239,6 @@
         </button>
       </div>
     </div>
-    {{/if}}
   </div>
 
   <!-- MVP-U4: Queue Section -->

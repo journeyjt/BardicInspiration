@@ -5,6 +5,7 @@
 
 import { LibWrapperUtils } from './lib/lib-wrapper-utils.js';
 import { YouTubeDJApp } from './apps/YouTubeDJApp.js';
+import { logger } from './lib/logger.js';
 import './styles/main.css';
 
 const MODULE_ID = 'bardic-inspiration';
@@ -23,7 +24,7 @@ class BardicInspirationAPI implements ModuleAPI {
   }
 
   static somePublicMethod(): void {
-    console.log(`${MODULE_ID} | Public API method called`);
+    logger.api('Public API method called');
   }
 
   static getLibWrapperUtils(): typeof LibWrapperUtils {
@@ -33,7 +34,7 @@ class BardicInspirationAPI implements ModuleAPI {
 
 // Module initialization
 Hooks.once('init', () => {
-  console.log(`${MODULE_ID} | Module initialized`);
+  logger.info('Module initialized');
   
   // Register world-level settings for YouTube DJ
   game.settings.register('core', 'youtubeDJ.currentDJ', {
@@ -69,7 +70,7 @@ Hooks.once('init', () => {
     }
   });
 
-  console.log(`${MODULE_ID} | YouTube DJ world settings registered`);
+  logger.info('YouTube DJ world settings registered');
   
   // Register module API globally
   const module = game.modules.get(MODULE_ID);
@@ -79,27 +80,27 @@ Hooks.once('init', () => {
 
   // Example of using libWrapper (when available)
   if (LibWrapperUtils.isLibWrapperAvailable()) {
-    console.log(`${MODULE_ID} | libWrapper detected and ready`);
+    logger.info('libWrapper detected and ready');
   }
 });
 
 Hooks.once('ready', () => {
-  console.log(`${MODULE_ID} | Module ready`);
+  logger.info('Module ready');
   
   // Check for Developer Mode
   const devMode = game.modules.get('_dev-mode');
   if (devMode?.active) {
-    console.log(`${MODULE_ID} | Developer Mode detected - enhanced logging enabled`);
+    logger.info('Developer Mode detected - enhanced logging enabled');
   }
 });
 
 // Use getSceneControlButtons hook to add control buttons properly
 Hooks.on('getSceneControlButtons', (controls: any) => {
-  console.log(`${MODULE_ID} | Adding tool to existing controls`);
+  logger.debug('Adding tool to existing controls');
   
   // In v13, controls.tokens.tools is an object, not an array
   if (controls.tokens && controls.tokens.tools) {
-    console.log(`${MODULE_ID} | Adding tool to tokens control group`);
+    logger.debug('Adding tool to tokens control group');
     
     // Add our tool as a property of the tools object
     controls.tokens.tools['bardic-inspiration-youtube-dj'] = {
@@ -107,16 +108,16 @@ Hooks.on('getSceneControlButtons', (controls: any) => {
       title: 'YouTube DJ - Synced Player',
       icon: 'fas fa-music',
       onChange: () => {
-        console.log(`${MODULE_ID} | YouTube DJ tool clicked!`);
+        logger.debug('YouTube DJ tool clicked!');
         BardicInspirationAPI.openYoutubeDJ();
       },
       button: true
     };
     
-    console.log(`${MODULE_ID} | Tool added to tokens control group`);
-    console.log(`${MODULE_ID} | Updated tools:`, Object.keys(controls.tokens.tools));
+    logger.debug('Tool added to tokens control group');
+    logger.debug('Updated tools:', Object.keys(controls.tokens.tools));
   } else {
-    console.warn(`${MODULE_ID} | No tokens control or tools found in controls`);
+    logger.warn('No tokens control or tools found in controls');
   }
 });
 
@@ -124,13 +125,13 @@ Hooks.on('getSceneControlButtons', (controls: any) => {
 // Developer Mode integration
 Hooks.once('devModeReady', ({ registerPackageDebugFlag }: { registerPackageDebugFlag: (packageId: string) => void }) => {
   registerPackageDebugFlag(MODULE_ID);
-  console.log(`${MODULE_ID} | Debug flag registered with Developer Mode`);
+  logger.info('Debug flag registered with Developer Mode');
 });
 
 // Hot Module Replacement support for Vite
 if (import.meta.hot) {
   import.meta.hot.accept();
-  console.log(`${MODULE_ID} | Hot Module Replacement enabled`);
+  logger.debug('Hot Module Replacement enabled');
 }
 
 // Export API for external access

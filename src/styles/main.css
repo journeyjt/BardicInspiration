@@ -220,22 +220,19 @@
   box-shadow: var(--bardic-inspiration-shadow);
 }
 
-.members-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
+/* DJ Controls Row - First Row */
+.dj-controls-row {
   margin-bottom: var(--bardic-inspiration-space);
+}
+
+/* Session Members Title Row - Second Row */
+.members-title-row {
+  margin-bottom: var(--bardic-inspiration-space-sm);
   padding-bottom: var(--bardic-inspiration-space-sm);
   border-bottom: 1px solid var(--bardic-inspiration-border);
 }
 
-.members-header i {
-  font-size: 1.25rem;
-  margin-right: var(--bardic-inspiration-space-sm);
-  color: var(--bardic-inspiration-accent);
-}
-
-.members-header h3 {
+.members-title-row h3 {
   margin: 0;
   color: var(--bardic-inspiration-text);
   font-size: 1.125rem;
@@ -245,9 +242,14 @@
   gap: var(--bardic-inspiration-space-sm);
 }
 
+.members-title-row i {
+  font-size: 1.25rem;
+  color: var(--bardic-inspiration-accent);
+}
+
 .dj-controls {
   display: flex;
-  gap: var(--bardic-inspiration-space-sm);
+  gap: var(--bardic-inspiration-space);
   flex-wrap: wrap;
   align-items: center;
 }
@@ -567,6 +569,14 @@
   text-align: left;
   display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: var(--bardic-inspiration-space-sm);
+  flex-wrap: wrap;
+}
+
+.transport-buttons {
+  display: flex;
+  align-items: center;
   gap: var(--bardic-inspiration-space-sm);
   flex-wrap: wrap;
 }
@@ -580,6 +590,21 @@
 
 .player-controls-section .url-input-section {
   margin-bottom: 0;
+}
+
+/* Non-DJ disabled state styling */
+.url-input-section.non-dj-disabled {
+  opacity: 0.6;
+}
+
+.url-input-section.non-dj-disabled .youtube-url-input {
+  background-color: var(--bardic-inspiration-bg-disabled, #2a2a2a);
+  cursor: not-allowed;
+}
+
+.url-input-section.non-dj-disabled button {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .mute-control {
@@ -1415,12 +1440,7 @@
   transform: translateY(-1px);
 }
 
-/* Enhanced DJ controls layout */
-.dj-controls {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
+/* Enhanced DJ controls layout - consolidated above */
 
 /* Enhanced mobile responsiveness for new features */
 @media (max-width: 600px) {
