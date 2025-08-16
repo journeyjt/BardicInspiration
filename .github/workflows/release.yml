@@ -16,6 +16,13 @@ jobs:
       with:
         node-version: '18'
 
+    - name: Install Dependencies and Build
+      run: |
+        echo "Installing dependencies..."
+        npm ci
+        echo "Building module..."
+        npm run vite:build
+
     - name: Validate Module Manifest
       run: |
         echo "Validating module.json..."
@@ -174,13 +181,6 @@ jobs:
         
         echo "SUCCESS: Updated manifest is valid"
 
-    - name: Install Dependencies and Build
-      run: |
-        echo "Installing dependencies..."
-        npm ci
-        echo "Building module..."
-        npm run vite:build
-        
     - name: Create Module Archive
       run: |
         echo "Creating module archive..."
