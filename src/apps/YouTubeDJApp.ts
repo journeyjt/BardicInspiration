@@ -1,6 +1,6 @@
 /**
  * YouTube DJ Application - Synced YouTube Player for FoundryVTT
- * MVP-U2: Socket Communication Foundation
+ * MVP-U3: Multi-Client Sync with Heartbeat System
  */
 
 interface YouTubeDJData {
@@ -17,10 +17,18 @@ interface YouTubeDJData {
 }
 
 interface YouTubeDJMessage {
-  type: 'PLAY' | 'PAUSE' | 'SEEK' | 'LOAD' | 'DJ_CLAIM' | 'DJ_RELEASE' | 'USER_JOIN' | 'USER_LEAVE' | 'STATE_REQUEST' | 'STATE_RESPONSE';
+  type: 'PLAY' | 'PAUSE' | 'SEEK' | 'LOAD' | 'DJ_CLAIM' | 'DJ_RELEASE' | 'USER_JOIN' | 'USER_LEAVE' | 'STATE_REQUEST' | 'STATE_RESPONSE' | 'HEARTBEAT';
   data?: any;
   userId: string;
   timestamp: number;
+}
+
+interface HeartbeatData {
+  videoId: string;
+  currentTime: number;
+  isPlaying: boolean;
+  duration: number;
+  serverTimestamp: number;
 }
 
 export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplicationMixin(foundry.applications.api.ApplicationV2) {
@@ -39,6 +47,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private isConnected: boolean = false;
   private hasJoinedSession: boolean = false;
   private sessionMembers: Array<{id: string, name: string, isDJ: boolean}> = [];
+  
+  // MVP-U3: Multi-Client Sync properties
+  private heartbeatInterval: number | null = null;
+  private lastHeartbeat: HeartbeatData | null = null;
+  private driftTolerance: number = 1.0; // 1 second tolerance
+  private heartbeatFrequency: number = 2000; // 2 seconds (5-10 second range from spec)
   
   // World-level state management
   private static readonly WORLD_DJ_SETTING = 'youtubeDJ.currentDJ';
@@ -342,6 +356,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     
     // Start seek bar updates for DJ
     this._startSeekBarUpdates();
+    
+    // Start heartbeat system for DJ
+    if (this.isDJ) {
+      this._startHeartbeat();
+    }
     
     ui.notifications?.info('YouTube player ready! Full programmatic control available.');
     
@@ -1017,6 +1036,11 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
           userId: currentUser.id,
           timestamp: Date.now()
         });
+        
+        // MVP-U3: Request sync state for late joiners
+        if (!this.isDJ) {
+          this._requestLatejoinSync();
+        }
       }
       
       // Try to claim DJ role if no one is DJ yet
@@ -1080,6 +1104,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     
     console.log('🎵 YouTube DJ | Claimed DJ role manually');
     ui.notifications?.success('You are now the DJ!');
+    
+    // Start heartbeat for new DJ
+    if (this.playerReady) {
+      this._startHeartbeat();
+    }
+    
     this._updatePlayerStatusUI();
     this._updateDJControls();
     this._updateDJStatusHeader();
@@ -1108,6 +1138,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       userId: game.user?.id || '',
       timestamp: Date.now()
     });
+    
+    // Stop heartbeat for released DJ
+    this._stopHeartbeat();
     
     ui.notifications?.info('DJ role released');
     this._updatePlayerStatusUI();
@@ -1144,6 +1177,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
 
     // Clean up timers and observers
     this._stopSeekBarUpdates();
+    this._stopHeartbeat();
     
     if (this.containerObserver) {
       this.containerObserver.disconnect();
@@ -1345,6 +1379,24 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   }
 
   /**
+   * MVP-U3: Request sync state for late joiners
+   */
+  private _requestLatejoinSync(): void {
+    console.log('🎵 YouTube DJ | Requesting sync state as late joiner...');
+    
+    // Wait a moment for player to be ready, then request sync
+    setTimeout(() => {
+      if (this.playerReady && this.youtubePlayer) {
+        this._broadcastMessage({
+          type: 'STATE_REQUEST',
+          userId: game.user?.id || '',
+          timestamp: Date.now()
+        });
+      }
+    }, 1000);
+  }
+
+  /**
    * Try to claim DJ role (first user becomes DJ)
    */
   private _tryClaimDJRole(): void {
@@ -1372,6 +1424,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       });
       
       console.log('🎵 YouTube DJ | Claimed DJ role');
+      
+      // Start heartbeat for new DJ
+      if (this.playerReady) {
+        this._startHeartbeat();
+      }
+      
       this._updatePlayerStatusUI();
       this._updateDJControls();
       this._updateDJStatusHeader();
@@ -1429,6 +1487,9 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       case 'USER_LEAVE':
         this._handleUserLeave(message);
         break;
+      case 'HEARTBEAT':
+        this._handleHeartbeat(message);
+        break;
       case 'PING':
         console.log(`🎵 YouTube DJ | PING received from ${message.userId}!`);
         break;
@@ -1444,14 +1505,40 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private _handleStateRequest(message: YouTubeDJMessage): void {
     console.log(`🎵 YouTube DJ | Sending state response to ${message.userId}`);
     
+    // Prepare response data
+    const responseData: any = {
+      djUserId: this.djUserId,
+      sessionMembers: this.sessionMembers
+    };
+    
+    // MVP-U3: Include current playback state if we're the DJ
+    if (this.isDJ && this.playerReady && this.youtubePlayer) {
+      try {
+        const videoData = this.youtubePlayer.getVideoData();
+        const currentTime = this.youtubePlayer.getCurrentTime();
+        const duration = this.youtubePlayer.getDuration();
+        const playerState = this.youtubePlayer.getPlayerState();
+        const isPlaying = playerState === 1;
+        
+        responseData.currentPlayback = {
+          videoId: videoData?.video_id || '',
+          currentTime: currentTime,
+          isPlaying: isPlaying,
+          duration: duration || 0,
+          serverTimestamp: Date.now()
+        };
+        
+        console.log(`🎵 YouTube DJ | Including playback state in response: ${isPlaying ? 'PLAYING' : 'PAUSED'} at ${currentTime.toFixed(1)}s`);
+      } catch (error) {
+        console.warn('🎵 YouTube DJ | Error getting playback state for response:', error);
+      }
+    }
+    
     // Send current state to the requesting user
     this._broadcastMessage({
       type: 'STATE_RESPONSE',
       userId: game.user?.id || '',
-      data: {
-        djUserId: this.djUserId,
-        sessionMembers: this.sessionMembers
-      },
+      data: responseData,
       timestamp: Date.now()
     });
   }
@@ -1481,6 +1568,34 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         console.log(`🎵 YouTube DJ | Updated session members from state response`);
       }
       
+      // MVP-U3: Handle late joiner sync with current playback state
+      if (message.data.currentPlayback && !this.isDJ && this.playerReady && this.youtubePlayer) {
+        const playback = message.data.currentPlayback;
+        console.log(`🎵 YouTube DJ | Late joiner sync - Loading ${playback.videoId} at ${playback.currentTime.toFixed(1)}s`);
+        
+        try {
+          // Load the video and seek to current position
+          if (playback.videoId) {
+            this.youtubePlayer.loadVideoById(playback.videoId, playback.currentTime);
+            
+            // Set playing state after load
+            setTimeout(() => {
+              if (playback.isPlaying) {
+                this.youtubePlayer.playVideo();
+                console.log('🎵 YouTube DJ | Late joiner sync - Started playback');
+              } else {
+                this.youtubePlayer.pauseVideo();
+                console.log('🎵 YouTube DJ | Late joiner sync - Paused');
+              }
+            }, 500);
+            
+            ui.notifications?.info('Synced with ongoing session!');
+          }
+        } catch (error) {
+          console.error('🎵 YouTube DJ | Error during late joiner sync:', error);
+        }
+      }
+      
       // Save updated state and refresh UI
       this._saveWorldState();
       this._updateSessionMembersUI();
@@ -1501,6 +1616,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       // Only GM saves to world state, others just update UI
       this._saveWorldState();
+      
+      // Start heartbeat if this user became DJ
+      if (this.isDJ && this.playerReady) {
+        this._startHeartbeat();
+      }
+      
       this._updatePlayerStatusUI();
       this._updateDJControls();
       this._updateDJStatusHeader();
@@ -1521,6 +1642,10 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       
       // Save to world state
       this._saveWorldState();
+      
+      // Stop heartbeat if this user lost DJ role
+      this._stopHeartbeat();
+      
       this._updatePlayerStatusUI();
       this._updateDJControls();
       this._updateDJStatusHeader();
@@ -1607,6 +1732,136 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this.sessionMembers.splice(memberIndex, 1);
       console.log(`🎵 YouTube DJ | User left session: ${member.name}`);
       this._updateSessionMembersUI();
+    }
+  }
+
+  /**
+   * MVP-U3: Start heartbeat system for DJ
+   */
+  private _startHeartbeat(): void {
+    // Clear any existing heartbeat
+    this._stopHeartbeat();
+    
+    if (!this.isDJ) {
+      console.log('🎵 YouTube DJ | Not DJ, skipping heartbeat start');
+      return;
+    }
+    
+    console.log(`🎵 YouTube DJ | Starting heartbeat system (${this.heartbeatFrequency}ms interval)`);
+    
+    this.heartbeatInterval = window.setInterval(() => {
+      if (this.isDJ && this.playerReady && this.youtubePlayer) {
+        this._sendHeartbeat();
+      }
+    }, this.heartbeatFrequency);
+  }
+
+  /**
+   * MVP-U3: Stop heartbeat system
+   */
+  private _stopHeartbeat(): void {
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+      console.log('🎵 YouTube DJ | Heartbeat stopped');
+    }
+  }
+
+  /**
+   * MVP-U3: Send heartbeat with current player state
+   */
+  private _sendHeartbeat(): void {
+    if (!this.youtubePlayer || !this.playerReady) {
+      return;
+    }
+    
+    try {
+      const videoData = this.youtubePlayer.getVideoData();
+      const currentTime = this.youtubePlayer.getCurrentTime();
+      const duration = this.youtubePlayer.getDuration();
+      const playerState = this.youtubePlayer.getPlayerState();
+      const isPlaying = playerState === 1; // YT.PlayerState.PLAYING
+      
+      const heartbeatData: HeartbeatData = {
+        videoId: videoData?.video_id || '',
+        currentTime: currentTime,
+        isPlaying: isPlaying,
+        duration: duration || 0,
+        serverTimestamp: Date.now()
+      };
+      
+      // Store for reference
+      this.lastHeartbeat = heartbeatData;
+      
+      // Broadcast to all listeners
+      this._broadcastMessage({
+        type: 'HEARTBEAT',
+        data: heartbeatData,
+        userId: game.user?.id || '',
+        timestamp: Date.now()
+      });
+      
+      console.log(`🎵 YouTube DJ | Heartbeat sent - ${isPlaying ? 'PLAYING' : 'PAUSED'} at ${currentTime.toFixed(1)}s`);
+      
+    } catch (error) {
+      console.warn('🎵 YouTube DJ | Error sending heartbeat:', error);
+    }
+  }
+
+  /**
+   * MVP-U3: Handle heartbeat from DJ
+   */
+  private _handleHeartbeat(message: YouTubeDJMessage): void {
+    // Only non-DJ users should process heartbeats
+    if (this.isDJ || !this.playerReady || !this.youtubePlayer) {
+      return;
+    }
+    
+    const heartbeat = message.data as HeartbeatData;
+    if (!heartbeat) {
+      console.warn('🎵 YouTube DJ | Invalid heartbeat data received');
+      return;
+    }
+    
+    console.log(`🎵 YouTube DJ | Heartbeat received - ${heartbeat.isPlaying ? 'PLAYING' : 'PAUSED'} at ${heartbeat.currentTime.toFixed(1)}s`);
+    
+    try {
+      // Check if we need to sync video
+      const currentVideoData = this.youtubePlayer.getVideoData();
+      if (currentVideoData?.video_id !== heartbeat.videoId && heartbeat.videoId) {
+        console.log(`🎵 YouTube DJ | Video sync needed: ${currentVideoData?.video_id} -> ${heartbeat.videoId}`);
+        this.youtubePlayer.loadVideoById(heartbeat.videoId, heartbeat.currentTime);
+        return;
+      }
+      
+      // Get current local state
+      const localTime = this.youtubePlayer.getCurrentTime();
+      const localState = this.youtubePlayer.getPlayerState();
+      const localIsPlaying = localState === 1;
+      
+      // Calculate drift
+      const timeDrift = Math.abs(localTime - heartbeat.currentTime);
+      
+      console.log(`🎵 YouTube DJ | Sync check - Local: ${localTime.toFixed(1)}s, Remote: ${heartbeat.currentTime.toFixed(1)}s, Drift: ${timeDrift.toFixed(1)}s`);
+      
+      // Sync playback state if different
+      if (localIsPlaying !== heartbeat.isPlaying) {
+        console.log(`🎵 YouTube DJ | Playback state sync: ${localIsPlaying ? 'PLAYING' : 'PAUSED'} -> ${heartbeat.isPlaying ? 'PLAYING' : 'PAUSED'}`);
+        if (heartbeat.isPlaying) {
+          this.youtubePlayer.playVideo();
+        } else {
+          this.youtubePlayer.pauseVideo();
+        }
+      }
+      
+      // Drift correction - seek if out of tolerance
+      if (timeDrift > this.driftTolerance) {
+        console.log(`🎵 YouTube DJ | Drift correction: seeking from ${localTime.toFixed(1)}s to ${heartbeat.currentTime.toFixed(1)}s (drift: ${timeDrift.toFixed(1)}s)`);
+        this.youtubePlayer.seekTo(heartbeat.currentTime, true);
+      }
+      
+    } catch (error) {
+      console.error('🎵 YouTube DJ | Error processing heartbeat:', error);
     }
   }
 
