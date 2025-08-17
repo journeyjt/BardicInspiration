@@ -682,8 +682,8 @@ export class YouTubePlayerWidget {
         }
       };
       
-      // PRODUCTION DEBUG: Log all relevant environment info
-      console.error('🎵 PROD DEBUG | Player creation environment:', {
+      // Debug: Log all relevant environment info
+      logger.debug('🎵 YouTube DJ | Player creation environment:', {
         containerId: this.containerId,
         videoId,
         origin: window.location.origin,
@@ -707,8 +707,8 @@ export class YouTubePlayerWidget {
       // Create player with minimal parameters and immediate video load
       this.player = new YT.Player(this.containerId, playerConfig);
 
-      // PRODUCTION DEBUG: Log player object creation
-      console.error('🎵 PROD DEBUG | Player object created:', {
+      // Debug: Log player object creation
+      logger.debug('🎵 YouTube DJ | Player object created:', {
         playerExists: !!this.player,
         playerType: typeof this.player,
         playerConstructor: this.player?.constructor?.name
@@ -785,9 +785,13 @@ export class YouTubePlayerWidget {
     
     // CRITICAL: Check if iframe was actually created despite "ready" event
     setTimeout(() => {
-      const iframe = document.querySelector(`#${this.containerId} iframe`);
-      if (!iframe) {
-        console.error('🎵 PROD DEBUG | Player ready but no iframe - attempting recreation with different config');
+      // YouTube replaces the container div WITH an iframe, not putting an iframe inside it
+      const container = document.getElementById(this.containerId);
+      const isIframe = container?.tagName === 'IFRAME';
+      const hasIframeChild = !!container?.querySelector('iframe');
+      
+      if (!isIframe && !hasIframeChild) {
+        logger.debug('🎵 YouTube DJ | Player ready but no iframe - attempting recreation with different config');
         this.handleFailedIframeCreation();
         return;
       }
