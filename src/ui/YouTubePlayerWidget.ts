@@ -650,6 +650,10 @@ export class YouTubePlayerWidget {
         ? queueState.items[queueState.currentIndex]?.videoId 
         : 'dQw4w9WgXcQ'; // Default test video
 
+      // Determine if we're in a production HTTPS environment
+      const isHTTPS = window.location.protocol === 'https:';
+      const isProduction = window.location.hostname !== 'localhost' && !window.location.hostname.includes('127.0.0.1');
+      
       // Log exact parameters being passed to YouTube API
       const playerConfig = {
         height: '140',
@@ -663,7 +667,13 @@ export class YouTubePlayerWidget {
           modestbranding: 1,
           playsinline: 1,
           rel: 0,
-          origin: window.location.origin
+          // In production HTTPS, be more specific about origin
+          ...(isHTTPS && isProduction ? {
+            origin: window.location.origin,
+            widget_referrer: window.location.origin
+          } : {
+            origin: window.location.origin
+          })
         },
         events: {
           onReady: this.onPlayerReady.bind(this),
@@ -671,6 +681,22 @@ export class YouTubePlayerWidget {
           onError: this.onPlayerError.bind(this)
         }
       };
+      
+      // PRODUCTION DEBUG: Log all relevant environment info
+      console.error('🎵 PROD DEBUG | Player creation environment:', {
+        containerId: this.containerId,
+        videoId,
+        origin: window.location.origin,
+        protocol: window.location.protocol,
+        hostname: window.location.hostname,
+        isHTTPS: isHTTPS,
+        isProduction: isProduction,
+        containerExists: !!container,
+        containerVisible: container?.offsetParent !== null,
+        containerDisplay: window.getComputedStyle(container || document.body).display,
+        ytAPIReady: !!(window.YT && window.YT.Player),
+        playerVars: playerConfig.playerVars
+      });
       
       logger.debug('🎵 YouTube DJ | Creating YT.Player with config:', {
         containerId: this.containerId,
@@ -681,12 +707,32 @@ export class YouTubePlayerWidget {
       // Create player with minimal parameters and immediate video load
       this.player = new YT.Player(this.containerId, playerConfig);
 
+      // PRODUCTION DEBUG: Log player object creation
+      console.error('🎵 PROD DEBUG | Player object created:', {
+        playerExists: !!this.player,
+        playerType: typeof this.player,
+        playerConstructor: this.player?.constructor?.name
+      });
+
       logger.info('🎵 YouTube DJ | Widget player created successfully');
 
       // Check if iframe was created immediately
       setTimeout(() => {
         const containerAfterCreation = document.getElementById(this.containerId);
         const iframe = containerAfterCreation?.querySelector('iframe');
+        
+        // PRODUCTION DEBUG: Detailed iframe creation check
+        console.error('🎵 PROD DEBUG | Post-creation check (100ms):', {
+          containerStillExists: !!containerAfterCreation,
+          iframeCreated: !!iframe,
+          containerContent: containerAfterCreation?.innerHTML || 'no content',
+          containerChildren: containerAfterCreation?.children.length || 0,
+          iframeSrc: iframe?.getAttribute('src'),
+          containerParent: containerAfterCreation?.parentElement?.tagName,
+          containerClasses: containerAfterCreation?.className,
+          containerStyle: containerAfterCreation?.getAttribute('style')
+        });
+        
         logger.debug('🎵 YouTube DJ | Post-creation check (100ms):', {
           containerStillExists: !!containerAfterCreation,
           iframeCreated: !!iframe,
@@ -699,6 +745,17 @@ export class YouTubePlayerWidget {
           setTimeout(() => {
             const laterContainer = document.getElementById(this.containerId);
             const laterIframe = laterContainer?.querySelector('iframe');
+            
+            // PRODUCTION DEBUG: Delayed iframe check
+            console.error('🎵 PROD DEBUG | Post-creation check (1000ms):', {
+              containerExists: !!laterContainer,
+              iframeCreated: !!laterIframe,
+              containerHTML: laterContainer?.innerHTML || 'no content',
+              iframeSrc: laterIframe?.getAttribute('src'),
+              playerReady: this.isPlayerReady,
+              playerObject: !!this.player
+            });
+            
             logger.debug('🎵 YouTube DJ | Post-creation check (1000ms):', {
               containerExists: !!laterContainer,
               iframeCreated: !!laterIframe,
@@ -717,6 +774,15 @@ export class YouTubePlayerWidget {
    * Player ready event handler
    */
   private onPlayerReady(event: YT.PlayerEvent): void {
+    // PRODUCTION DEBUG: Player ready event fired
+    console.error('🎵 PROD DEBUG | Player ready event fired:', {
+      event: !!event,
+      target: event?.target?.constructor?.name,
+      playerId: event?.target?.h?.id,
+      container: document.getElementById(this.containerId)?.tagName,
+      iframe: !!document.querySelector(`#${this.containerId} iframe`)
+    });
+    
     logger.info('🎵 YouTube DJ | Widget player ready');
     
     // The player is ready, mark it immediately
@@ -821,6 +887,16 @@ export class YouTubePlayerWidget {
    * Player error handler
    */
   private onPlayerError(event: YT.OnErrorEvent): void {
+    // PRODUCTION DEBUG: Player error event
+    console.error('🎵 PROD DEBUG | Player error event:', {
+      errorCode: event.data,
+      errorType: typeof event.data,
+      event: event,
+      target: event?.target?.constructor?.name,
+      container: document.getElementById(this.containerId)?.tagName,
+      iframe: !!document.querySelector(`#${this.containerId} iframe`)
+    });
+    
     logger.error('🎵 YouTube DJ | Widget player error:', event.data);
     ui.notifications?.error(`YouTube Player Error: ${event.data}`);
   }
@@ -932,8 +1008,24 @@ export class YouTubePlayerWidget {
    * Handle state changes from SessionStore
    */
   private onStateChanged(event: StateChangeEvent): void {
+    // PRODUCTION DEBUG: Log all state changes that could trigger re-renders
+    console.error('🎵 PROD DEBUG | State change event received:', {
+      isJoiningSession: this.isJoiningSession,
+      changes: Object.keys(event.changes || {}),
+      sessionChanges: Object.keys(event.changes?.session || {}),
+      playerChanges: Object.keys(event.changes?.player || {}),
+      queueChanges: Object.keys(event.changes?.queue || {}),
+      hasJoinedSession: {
+        previous: event.previous?.session?.hasJoinedSession,
+        current: event.changes?.session?.hasJoinedSession
+      },
+      playerReady: this.isPlayerReady,
+      iframeExists: !!document.querySelector(`#${this.containerId} iframe`)
+    });
+    
     // Skip renders while joining session to prevent iframe destruction
     if (this.isJoiningSession) {
+      console.error('🎵 PROD DEBUG | Skipping render during join session process');
       logger.debug('🎵 YouTube DJ | Skipping render during join session process');
       return;
     }
@@ -949,11 +1041,28 @@ export class YouTubePlayerWidget {
     );
 
     if (needsFullRender) {
+      console.error('🎵 PROD DEBUG | FULL RENDER TRIGGERED - This will destroy iframe!', {
+        reason: 'User session join',
+        previous: event.previous?.session?.hasJoinedSession,
+        current: event.changes.session.hasJoinedSession,
+        isInitializing: isInitializing,
+        iframeBeforeRender: !!document.querySelector(`#${this.containerId} iframe`)
+      });
+      
       logger.debug('🎵 YouTube DJ | Widget re-rendering for USER session JOIN:', {
         previous: event.previous?.session?.hasJoinedSession,
         current: event.changes.session.hasJoinedSession
       });
+      
       this.render();
+      
+      // Check iframe after render
+      setTimeout(() => {
+        console.error('🎵 PROD DEBUG | After full render:', {
+          iframeAfterRender: !!document.querySelector(`#${this.containerId} iframe`),
+          containerHTML: document.getElementById(this.containerId)?.innerHTML
+        });
+      }, 100);
     } else if (
       event.changes.session?.hasJoinedSession === true &&
       event.previous?.session?.hasJoinedSession === false &&
@@ -970,9 +1079,18 @@ export class YouTubePlayerWidget {
       logger.debug('🎵 YouTube DJ | Widget handling session LEAVE without re-render');
       this.updateSessionLeaveWithoutRender();
     } else {
+      console.error('🎵 PROD DEBUG | Selective update path taken:', {
+        isMutedChange: event.changes.player?.isMuted !== undefined,
+        volumeChange: event.changes.player?.volume !== undefined,
+        membersChange: event.changes.session?.members !== undefined,
+        djChange: event.changes.session?.djUserId !== undefined,
+        otherChanges: Object.keys(event.changes || {}).filter(k => !['player', 'session'].includes(k))
+      });
+      
       // Handle specific player state changes without re-rendering
       if (event.changes.player?.isMuted !== undefined) {
         // Mute state changed - update only the mute button
+        console.error('🎵 PROD DEBUG | Updating mute button only (no re-render)');
         logger.debug('🎵 YouTube DJ | Widget updating mute button for mute state change');
         this.updateMuteButton();
         return;
@@ -980,6 +1098,7 @@ export class YouTubePlayerWidget {
       
       if (event.changes.player?.volume !== undefined) {
         // Volume state changed - update only the volume slider
+        console.error('🎵 PROD DEBUG | Updating volume slider only (no re-render)');
         logger.debug('🎵 YouTube DJ | Widget updating volume slider for volume state change');
         this.updateVolumeSlider();
         return;
@@ -990,9 +1109,11 @@ export class YouTubePlayerWidget {
       
       // Also update member-related displays without re-rendering
       if (event.changes.session?.members !== undefined || event.changes.session?.djUserId !== undefined) {
+        console.error('🎵 PROD DEBUG | Updating member/DJ status (no re-render)');
         logger.debug('🎵 YouTube DJ | Widget updating for member/DJ changes without re-render');
         // Could add specific member/DJ status updates here if needed
       } else {
+        console.error('🎵 PROD DEBUG | Updating other elements (no re-render)');
         logger.debug('🎵 YouTube DJ | Widget updating specific elements for player state change');
       }
     }
@@ -1270,6 +1391,15 @@ export class YouTubePlayerWidget {
    * THIS IS THE ONLY INTENDED WAY TO JOIN SESSIONS
    */
   async joinSession(): Promise<void> {
+    // PRODUCTION DEBUG: Session join start
+    console.error('🎵 PROD DEBUG | Session join starting:', {
+      playerExists: !!this.player,
+      playerReady: this.isPlayerReady,
+      containerExists: !!document.getElementById(this.containerId),
+      iframe: !!document.querySelector(`#${this.containerId} iframe`),
+      isJoiningSession: this.isJoiningSession
+    });
+    
     logger.debug('🎵 YouTube DJ | Joining session from widget...');
     
     // Set flag to prevent re-renders during join process
@@ -1278,8 +1408,35 @@ export class YouTubePlayerWidget {
     try {
       // Check if iframe exists and restore it if needed
       try {
+        // PRODUCTION DEBUG: Before ensure player exists
+        console.error('🎵 PROD DEBUG | Before ensurePlayerExists:', {
+          playerExists: !!this.player,
+          playerReady: this.isPlayerReady,
+          containerExists: !!document.getElementById(this.containerId),
+          iframe: !!document.querySelector(`#${this.containerId} iframe`),
+          containerHTML: document.getElementById(this.containerId)?.innerHTML
+        });
+        
         await this.ensurePlayerExists();
+        
+        // PRODUCTION DEBUG: After ensure player exists
+        console.error('🎵 PROD DEBUG | After ensurePlayerExists:', {
+          playerExists: !!this.player,
+          playerReady: this.isPlayerReady,
+          containerExists: !!document.getElementById(this.containerId),
+          iframe: !!document.querySelector(`#${this.containerId} iframe`),
+          containerHTML: document.getElementById(this.containerId)?.innerHTML
+        });
       } catch (error) {
+        // PRODUCTION DEBUG: ensurePlayerExists failed
+        console.error('🎵 PROD DEBUG | ensurePlayerExists failed:', {
+          error: error.message,
+          playerExists: !!this.player,
+          playerReady: this.isPlayerReady,
+          containerExists: !!document.getElementById(this.containerId),
+          iframe: !!document.querySelector(`#${this.containerId} iframe`)
+        });
+        
         logger.warn('🎵 YouTube DJ | Could not ensure player exists, continuing with existing player:', error);
         // Continue with session join even if player recreation fails
       }
