@@ -2,7 +2,7 @@
   "id": "bardic-inspiration",
   "title": "Bardic Inspiration",
   "description": "Synchronized YouTube DJ for Foundry VTT - Play YouTube videos in sync across all players",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "compatibility": {
     "minimum": "12",
     "verified": "13.347"
