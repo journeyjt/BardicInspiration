@@ -1,0 +1,109 @@
+{{! Queue Section Component Template }}
+<div class="section-header">
+  <h3>
+    <i class="fas fa-list-music"></i>
+    Queue Management
+  </h3>
+  <div class="section-status">
+    <div class="queue-stats">
+      <span class="queue-count">{{queue.length}} tracks</span>
+      {{#if hasQueue}}
+      {{#if isDJ}}
+      <button type="button" class="control-btn danger-btn clear-queue-btn" title="Clear entire queue">
+        <i class="fas fa-trash"></i>
+        <span>Clear</span>
+      </button>
+      {{/if}}
+      {{/if}}
+    </div>
+  </div>
+</div>
+
+{{#if isDJ}}
+<!-- Video Input Controls (moved from PlayerControls) -->
+<div class="control-group video-input-group">
+  <div class="control-group-header">
+    <span class="control-label">Add Videos to Queue</span>
+  </div>
+  <div class="input-controls">
+    <div class="video-input-container">
+      <input 
+        type="text" 
+        class="video-url-input youtube-url-input" 
+        placeholder="Paste YouTube URL or video ID..."
+        {{#unless isPlayerReady}}disabled{{/unless}}
+      >
+    </div>
+    <div class="video-action-buttons">
+      <button type="button" class="control-btn success-btn add-to-queue-btn" {{#unless isPlayerReady}}disabled{{/unless}}>
+        <i class="fas fa-plus"></i>
+        <span>Add to Queue</span>
+      </button>
+      <button type="button" class="control-btn accent-btn play-next-btn" {{#unless isPlayerReady}}disabled{{/unless}}>
+        <i class="fas fa-forward"></i>
+        <span>Play Next</span>
+      </button>
+      <button type="button" class="control-btn primary-btn load-video-btn" {{#unless isPlayerReady}}disabled{{/unless}}>
+        <i class="fas fa-play"></i>
+        <span>Play Now</span>
+      </button>
+    </div>
+  </div>
+</div>
+{{/if}}
+
+<div class="queue-list">
+  {{#each queue}}
+  <div class="queue-item {{#if isCurrentItem}}queue-item-current{{/if}}" data-index="{{@index}}" data-queue-id="{{id}}">
+    <div class="queue-position">
+      <span class="position-number">{{add @index 1}}</span>
+      {{#if isCurrentItem}}
+      <div class="status-indicator now-playing">
+        <i class="fas fa-play"></i>
+        <span>Now Playing</span>
+      </div>
+      {{else if (eq @index (add ../currentQueueIndex 1))}}
+      <div class="status-indicator up-next">
+        <i class="fas fa-forward"></i>
+        <span>Up Next</span>
+      </div>
+      {{else if (eq @index 0)}}
+      {{#if (eq ../currentQueueIndex (add ../queue.length -1))}}
+      <div class="status-indicator up-next">
+        <i class="fas fa-forward"></i>
+        <span>Up Next</span>
+      </div>
+      {{/if}}
+      {{/if}}
+    </div>
+    <div class="queue-item-info">
+      <span class="queue-item-title">{{#if title}}{{title}}{{else}}{{videoId}}{{/if}}</span>
+      <span class="queue-item-meta">Added by {{addedBy}}</span>
+    </div>
+    {{#if ../isDJ}}
+    <div class="queue-item-controls">
+      <button type="button" class="skip-to-btn" data-index="{{@index}}" title="Skip to this video" {{#if isCurrentItem}}disabled{{/if}}>
+        <i class="fas fa-play"></i>
+      </button>
+      <button type="button" class="move-up-btn" data-index="{{@index}}" title="Move up" {{#if @first}}disabled{{/if}}>
+        <i class="fas fa-chevron-up"></i>
+      </button>
+      <button type="button" class="move-down-btn" data-index="{{@index}}" title="Move down" {{#if @last}}disabled{{/if}}>
+        <i class="fas fa-chevron-down"></i>
+      </button>
+      <button type="button" class="remove-queue-btn" data-queue-id="{{id}}" title="Remove">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    {{/if}}
+  </div>
+  {{else}}
+  <div class="queue-empty">
+    <i class="fas fa-music"></i>
+    <p>No videos in queue</p>
+    {{#if ../isDJ}}
+    <p>Add videos using the controls above</p>
+    {{/if}}
+  </div>
+  {{/each}}
+</div>

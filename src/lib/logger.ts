@@ -19,7 +19,7 @@ export class Logger {
   private constructor(moduleId: string) {
     this.moduleId = moduleId;
     this.isDevelopment = this.checkDevelopmentMode();
-    this.logLevel = LogLevel.WARN; // Always use WARN level to prevent console flooding
+    this.logLevel = this.isDevelopment ? LogLevel.DEBUG : LogLevel.WARN; // DEBUG in dev mode for testing
   }
 
   public static getInstance(moduleId: string = 'bardic-inspiration'): Logger {
