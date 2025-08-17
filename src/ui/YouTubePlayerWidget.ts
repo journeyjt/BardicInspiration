@@ -682,8 +682,8 @@ export class YouTubePlayerWidget {
         }
       };
       
-      // PRODUCTION DEBUG: Log all relevant environment info
-      console.error('🎵 PROD DEBUG | Player creation environment:', {
+      // Debug: Log all relevant environment info
+      logger.debug('🎵 YouTube DJ | Player creation environment:', {
         containerId: this.containerId,
         videoId,
         origin: window.location.origin,
@@ -707,8 +707,8 @@ export class YouTubePlayerWidget {
       // Create player with minimal parameters and immediate video load
       this.player = new YT.Player(this.containerId, playerConfig);
 
-      // PRODUCTION DEBUG: Log player object creation
-      console.error('🎵 PROD DEBUG | Player object created:', {
+      // Debug: Log player object creation
+      logger.debug('🎵 YouTube DJ | Player object created:', {
         playerExists: !!this.player,
         playerType: typeof this.player,
         playerConstructor: this.player?.constructor?.name
@@ -783,10 +783,36 @@ export class YouTubePlayerWidget {
       iframe: !!document.querySelector(`#${this.containerId} iframe`)
     });
     
-    logger.info('🎵 YouTube DJ | Widget player ready');
-    
-    // The player is ready, mark it immediately
-    this.isPlayerReady = true;
+    // CRITICAL: Check if iframe was actually created despite "ready" event
+    setTimeout(() => {
+      // YouTube replaces the container div WITH an iframe, not putting an iframe inside it
+      const container = document.getElementById(this.containerId);
+      const isIframe = container?.tagName === 'IFRAME';
+      const hasIframeChild = !!container?.querySelector('iframe');
+      
+      if (!isIframe && !hasIframeChild) {
+        logger.debug('🎵 YouTube DJ | Player ready but no iframe - attempting recreation with different config');
+        this.handleFailedIframeCreation();
+        return;
+      }
+      
+      logger.info('🎵 YouTube DJ | Widget player ready with working iframe');
+      
+      // The player is ready, mark it immediately
+      this.isPlayerReady = true;
+      this.continuePlayerReady();
+    }, 250); // Give iframe time to appear
+  }
+  
+  /**
+   * Continue player ready process after iframe verification
+   */
+  private continuePlayerReady(): void {
+    // Clear the joining flag now that player is actually ready
+    if (this.isJoiningSession) {
+      console.error('🎵 PROD DEBUG | Clearing isJoiningSession flag - player is ready');
+      this.isJoiningSession = false;
+    }
     
     // Sync initial mute state and volume from player
     const initialMuteState = this.player?.isMuted() || false;
@@ -841,6 +867,70 @@ export class YouTubePlayerWidget {
     }, 100); // Small delay to ensure player is fully ready
 
     logger.info('🎵 YouTube DJ | Player is now ready for commands!');
+  }
+  
+  /**
+   * Handle failed iframe creation (HTTPS origin issues)
+   */
+  private async handleFailedIframeCreation(): Promise<void> {
+    console.error('🎵 PROD DEBUG | Handling failed iframe creation - attempting workaround');
+    
+    // Reset player state
+    this.player = null;
+    this.isPlayerReady = false;
+    
+    // Try creating player with modified configuration for HTTPS
+    try {
+      const container = document.getElementById(this.containerId);
+      if (!container) {
+        throw new Error('Container not found for iframe recreation');
+      }
+      
+      // Clear container
+      container.innerHTML = '';
+      
+      // Get current video
+      const queueState = this.store.getQueueState();
+      const videoId = (queueState.items.length > 0 && queueState.currentIndex >= 0) 
+        ? queueState.items[queueState.currentIndex]?.videoId 
+        : 'dQw4w9WgXcQ';
+      
+      // Modified config for HTTPS production environment
+      const httpsConfig = {
+        height: '140',
+        width: '100%',
+        videoId: videoId,
+        playerVars: {
+          autoplay: 0,
+          controls: 1,
+          enablejsapi: 1,
+          fs: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          rel: 0,
+          origin: window.location.origin,
+          // Additional HTTPS-specific parameters
+          widget_referrer: window.location.origin,
+          host: window.location.hostname
+        },
+        events: {
+          onReady: this.onPlayerReady.bind(this),
+          onStateChange: this.onPlayerStateChange.bind(this),
+          onError: this.onPlayerError.bind(this)
+        }
+      };
+      
+      console.error('🎵 PROD DEBUG | Recreating player with HTTPS config:', httpsConfig.playerVars);
+      
+      // Create new player with HTTPS-optimized config
+      this.player = new YT.Player(this.containerId, httpsConfig);
+      
+      console.error('🎵 PROD DEBUG | Player recreated, checking for iframe in 500ms');
+      
+    } catch (error) {
+      console.error('🎵 PROD DEBUG | Failed to recreate player:', error);
+      logger.error('🎵 YouTube DJ | Failed to handle iframe creation failure:', error);
+    }
   }
 
   /**
@@ -1528,9 +1618,20 @@ export class YouTubePlayerWidget {
       logger.info('🎵 YouTube DJ | Successfully joined session from widget');
       ui.notifications?.success('Joined YouTube DJ session!');
       
-      // Clear the flag and perform selective update to show joined state
-      this.isJoiningSession = false;
+      // CRITICAL: Don't clear the flag yet! Wait for player to be ready
+      // The flag will be cleared when the player is actually ready
+      // this.isJoiningSession = false; // REMOVED - causes re-render before iframe creation
+      
+      // Perform selective update without clearing the flag
       this.updateWidgetSelectively(this.store.getState());
+      
+      // Clear the flag only after player is ready or after timeout
+      setTimeout(() => {
+        if (this.isJoiningSession) {
+          console.error('🎵 PROD DEBUG | Clearing isJoiningSession flag after timeout');
+          this.isJoiningSession = false;
+        }
+      }, 5000); // 5 second timeout as safety net
       
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to join session from widget:', error);
