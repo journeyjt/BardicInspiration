@@ -1,0 +1,126 @@
+{{! Session Control Component Template }}
+<div class="section-header">
+  <h3>
+    <i class="fas fa-broadcast-tower"></i>
+    Session Control
+  </h3>
+  <div class="section-status">
+    <div class="connection-status connected">
+      <i class="fas fa-circle"></i>
+      <span>Live</span>
+    </div>
+  </div>
+</div>
+
+<div class="control-group dj-control-group">
+  <div class="control-group-header">
+    <span class="control-label">DJ Management</span>
+  </div>
+  <div class="button-grid">
+    {{#if isDJ}}
+    <button type="button" class="control-btn secondary-btn release-dj-btn">
+      <i class="fas fa-crown"></i>
+      <span>Release DJ</span>
+    </button>
+    {{#if canHandoffDJ}}
+    <button type="button" class="control-btn accent-btn handoff-dj-btn">
+      <i class="fas fa-exchange-alt"></i>
+      <span>Hand Off DJ</span>
+    </button>
+    {{/if}}
+    {{else}}
+    <button type="button" class="control-btn primary-btn claim-dj-btn">
+      <i class="fas fa-microphone"></i>
+      <span>Become DJ</span>
+    </button>
+    <button type="button" class="control-btn secondary-btn request-dj-btn">
+      <i class="fas fa-hand-paper"></i>
+      <span>Request DJ</span>
+    </button>
+    {{/if}}
+    {{#if isGM}}
+    <button type="button" class="control-btn danger-btn gm-override-btn">
+      <i class="fas fa-gavel"></i>
+      <span>GM Override</span>
+    </button>
+    {{/if}}
+  </div>
+</div>
+
+<div class="control-group session-members-group">
+  <div class="control-group-header">
+    <span class="control-label">Connected Members ({{sessionMembers.length}})</span>
+  </div>
+  <div class="members-grid">
+    {{#each sessionMembers}}
+    <div class="member-card {{#if isDJ}}member-dj{{else}}member-listener{{/if}}">
+      <div class="member-avatar">
+        <i class="fas {{#if isDJ}}fa-microphone{{else}}fa-headphones{{/if}}"></i>
+      </div>
+      <div class="member-info">
+        <span class="member-name">{{name}}</span>
+        {{#if isDJ}}
+        <div class="member-badge dj-badge">
+          <i class="fas fa-crown"></i>
+          <span>DJ</span>
+        </div>
+        {{else}}
+        <div class="member-badge listener-badge">
+          <i class="fas fa-headphones"></i>
+          <span>Listener</span>
+        </div>
+        {{/if}}
+      </div>
+    </div>
+    {{else}}
+    <div class="member-card">
+      <div class="member-avatar">
+        <i class="fas fa-user"></i>
+      </div>
+      <div class="member-info">
+        <span class="member-name">You</span>
+        {{#if ../isDJ}}
+        <div class="member-badge dj-badge">
+          <i class="fas fa-crown"></i>
+          <span>DJ</span>
+        </div>
+        {{else}}
+        <div class="member-badge listener-badge">
+          <i class="fas fa-headphones"></i>
+          <span>Listener</span>
+        </div>
+        {{/if}}
+      </div>
+    </div>
+    {{/each}}
+  </div>
+</div>
+
+{{! DJ Requests Section (for current DJ only) }}
+{{#if isDJ}}
+{{#if hasDJRequests}}
+<div class="dj-requests">
+  <div class="requests-header">
+    <h3>
+      <i class="fas fa-hand-paper"></i>
+      DJ Requests ({{djRequests.length}})
+    </h3>
+  </div>
+  <div class="dj-requests-list">
+    {{#each djRequests}}
+    <div class="dj-request-item">
+      <span class="requester-name">{{userName}}</span>
+      <div class="request-actions">
+        <button class="approve-dj-request-btn" data-requester-id="{{userId}}">
+          <i class="fas fa-check"></i> Approve
+        </button>
+        <button class="deny-dj-request-btn" data-requester-id="{{userId}}">
+          <i class="fas fa-times"></i> Deny
+        </button>
+      </div>
+    </div>
+    {{/each}}
+  </div>
+</div>
+{{/if}}
+{{/if}}

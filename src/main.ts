@@ -5,6 +5,12 @@
 
 import { LibWrapperUtils } from './lib/lib-wrapper-utils.js';
 import { YouTubeDJApp } from './apps/YouTubeDJApp.js';
+import { YouTubePlayerWidget } from './ui/YouTubePlayerWidget.js';
+import { SessionStore } from './state/SessionStore.js';
+import { SocketManager } from './services/SocketManager.js';
+import { SessionManager } from './services/SessionManager.js';
+import { PlayerManager } from './services/PlayerManager.js';
+import { QueueManager } from './services/QueueManager.js';
 import { logger } from './lib/logger.js';
 import './styles/main.css';
 
@@ -23,6 +29,10 @@ class BardicInspirationAPI implements ModuleAPI {
     YouTubeDJApp.open();
   }
 
+  static openYoutubeDJWidget(): void {
+    YouTubePlayerWidget.getInstance().initialize();
+  }
+
   static somePublicMethod(): void {
     logger.api('Public API method called');
   }
@@ -36,7 +46,33 @@ class BardicInspirationAPI implements ModuleAPI {
 Hooks.once('init', () => {
   logger.info('Module initialized');
   
+  // Register Handlebars helpers for queue UI
+  Handlebars.registerHelper('add', function(a: number, b: number): number {
+    return a + b;
+  });
+
+  Handlebars.registerHelper('eq', function(a: any, b: any): boolean {
+    return a === b;
+  });
+  
+  // Initialize SessionStore
+  SessionStore.getInstance().initialize();
+  logger.info('YouTube DJ SessionStore initialized');
+  
+  // Services will be initialized in the ready hook
+  
   // Register world-level settings for YouTube DJ
+  // New unified session state setting
+  game.settings.register('core', 'youtubeDJ.sessionState', {
+    name: 'YouTube DJ Session State',
+    hint: 'Unified session state for YouTube DJ module',
+    scope: 'world',
+    config: false,
+    type: Object,
+    default: null
+  });
+
+  // Legacy settings for backward compatibility
   game.settings.register('core', 'youtubeDJ.currentDJ', {
     name: 'YouTube DJ Current DJ',
     hint: 'The current DJ user ID',
@@ -75,7 +111,13 @@ Hooks.once('init', () => {
   // Register module API globally
   const module = game.modules.get(MODULE_ID);
   if (module) {
-    (module as any).api = BardicInspirationAPI;
+    (module as any).api = {
+      ID: BardicInspirationAPI.ID,
+      openYoutubeDJ: BardicInspirationAPI.openYoutubeDJ,
+      openYoutubeDJWidget: BardicInspirationAPI.openYoutubeDJWidget,
+      somePublicMethod: BardicInspirationAPI.somePublicMethod,
+      getLibWrapperUtils: BardicInspirationAPI.getLibWrapperUtils
+    };
   }
 
   // Example of using libWrapper (when available)
@@ -84,8 +126,51 @@ Hooks.once('init', () => {
   }
 });
 
-Hooks.once('ready', () => {
+Hooks.once('ready', async () => {
   logger.info('Module ready');
+  
+  // Load SessionStore state from world settings
+  await SessionStore.getInstance().loadFromWorld();
+  logger.info('YouTube DJ state loaded from world settings');
+  
+  // Initialize global service managers
+  const store = SessionStore.getInstance();
+  
+  // Initialize global SocketManager for message handling
+  const socketManager = new SocketManager(store);
+  socketManager.initialize();
+  logger.info('YouTube DJ SocketManager initialized globally');
+  
+  // Initialize global SessionManager for DJ role management
+  const sessionManager = new SessionManager(store);
+  logger.info('YouTube DJ SessionManager initialized globally');
+  
+  // Initialize global PlayerManager for playback control
+  const playerManager = new PlayerManager(store);
+  logger.info('YouTube DJ PlayerManager initialized globally');
+  
+  // Initialize global QueueManager for queue operations
+  const queueManager = new QueueManager(store);
+  logger.info('YouTube DJ QueueManager initialized globally');
+  
+  // Store global references for access across components
+  (globalThis as any).youtubeDJSocketManager = socketManager;
+  (globalThis as any).youtubeDJSessionManager = sessionManager;
+  (globalThis as any).youtubeDJPlayerManager = playerManager;
+  (globalThis as any).youtubeDJQueueManager = queueManager;
+  
+  // Initialize YouTube player widget above player list
+  try {
+    const widget = YouTubePlayerWidget.getInstance();
+    await widget.initialize();
+    
+    // Add global reference for inline handlers
+    (window as any).youtubeDJWidget = widget;
+    
+    logger.info('YouTube DJ widget initialized above player list');
+  } catch (error) {
+    logger.warn('Failed to initialize YouTube DJ widget:', error);
+  }
   
   // Check for Developer Mode
   const devMode = game.modules.get('_dev-mode');
@@ -94,32 +179,7 @@ Hooks.once('ready', () => {
   }
 });
 
-// Use getSceneControlButtons hook to add control buttons properly
-Hooks.on('getSceneControlButtons', (controls: any) => {
-  logger.debug('Adding tool to existing controls');
-  
-  // In v13, controls.tokens.tools is an object, not an array
-  if (controls.tokens && controls.tokens.tools) {
-    logger.debug('Adding tool to tokens control group');
-    
-    // Add our tool as a property of the tools object
-    controls.tokens.tools['bardic-inspiration-youtube-dj'] = {
-      name: 'bardic-inspiration-youtube-dj',
-      title: 'YouTube DJ - Synced Player',
-      icon: 'fas fa-music',
-      onChange: () => {
-        logger.debug('YouTube DJ tool clicked!');
-        BardicInspirationAPI.openYoutubeDJ();
-      },
-      button: true
-    };
-    
-    logger.debug('Tool added to tokens control group');
-    logger.debug('Updated tools:', Object.keys(controls.tokens.tools));
-  } else {
-    logger.warn('No tokens control or tools found in controls');
-  }
-});
+// Scene controls tool removed - widget now handles DJ controls launching
 
 
 // Developer Mode integration
