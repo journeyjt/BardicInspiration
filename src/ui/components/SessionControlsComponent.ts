@@ -124,16 +124,110 @@ export class SessionControlsComponent extends BaseComponent {
         return;
       }
 
-      // For now, show a simple dialog with member names
-      // In a full implementation, this would be a proper UI dialog
-      const memberNames = eligibleMembers.map(m => m.name).join(', ');
-      ui.notifications?.info(`Available members for handoff: ${memberNames}`);
-      
-      // TODO: Implement proper handoff dialog
-      logger.info('🎵 YouTube DJ | DJ handoff dialog would show here');
+      // Create options for the dialog
+      const choices: Record<string, string> = {};
+      eligibleMembers.forEach(member => {
+        choices[member.userId] = member.name;
+      });
+
+      // Show a styled dialog to select the user to hand off to
+      const selectedUserId = await Dialog.prompt({
+        title: 'Hand Off DJ Role',
+        content: `
+          <div class="bardic-inspiration-dialog handoff-dialog">
+            <style>
+              .bardic-inspiration-dialog {
+                padding: 1rem;
+              }
+              .bardic-inspiration-dialog .form-group {
+                margin-bottom: 1rem;
+              }
+              .bardic-inspiration-dialog label {
+                display: block;
+                margin-bottom: 0.5rem;
+                color: var(--bardic-inspiration-text, #f8fafc);
+                font-weight: 600;
+                font-size: 0.95rem;
+              }
+              .bardic-inspiration-dialog select {
+                width: 100%;
+                padding: 0.625rem;
+                background: var(--bardic-inspiration-bg-card, #1e293b);
+                color: var(--bardic-inspiration-text, #f8fafc);
+                border: 1px solid var(--bardic-inspiration-border, #475569);
+                border-radius: var(--bardic-inspiration-radius, 0.5rem);
+                font-size: 0.95rem;
+                cursor: pointer;
+                transition: all 0.2s ease;
+              }
+              .bardic-inspiration-dialog select:hover {
+                border-color: var(--bardic-inspiration-primary, #2563eb);
+                background: var(--bardic-inspiration-bg-elevated, #334155);
+              }
+              .bardic-inspiration-dialog select:focus {
+                outline: none;
+                border-color: var(--bardic-inspiration-primary, #2563eb);
+                box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+              }
+              .bardic-inspiration-dialog select option {
+                background: var(--bardic-inspiration-bg-card, #1e293b);
+                color: var(--bardic-inspiration-text, #f8fafc);
+                padding: 0.5rem;
+              }
+              .bardic-inspiration-dialog .hint-text {
+                margin-top: 0.5rem;
+                color: var(--bardic-inspiration-text-muted, #94a3b8);
+                font-size: 0.875rem;
+                font-style: italic;
+              }
+              /* Style the dialog buttons */
+              .dialog .dialog-buttons button {
+                background: var(--bardic-inspiration-primary, #2563eb);
+                color: white;
+                border: none;
+                padding: 0.625rem 1.5rem;
+                border-radius: var(--bardic-inspiration-radius, 0.5rem);
+                font-weight: 600;
+                transition: all 0.2s ease;
+              }
+              .dialog .dialog-buttons button:hover {
+                background: var(--bardic-inspiration-primary-hover, #1d4ed8);
+                transform: translateY(-1px);
+                box-shadow: var(--bardic-inspiration-shadow-md);
+              }
+            </style>
+            <div class="form-group">
+              <label>Select a user to hand off DJ role to:</label>
+              <select name="targetUser">
+                ${Object.entries(choices).map(([userId, name]) => 
+                  `<option value="${userId}">${name}</option>`
+                ).join('')}
+              </select>
+              <div class="hint-text">
+                The selected user will become the new DJ and gain full control over playback.
+              </div>
+            </div>
+          </div>
+        `,
+        label: 'Hand Off',
+        callback: (html: JQuery) => {
+          const form = html[0] as HTMLElement;
+          const select = form.querySelector('select[name="targetUser"]') as HTMLSelectElement;
+          return select?.value;
+        },
+        rejectClose: false
+      });
+
+      // If user selected someone, perform the handoff
+      if (selectedUserId) {
+        await this.sessionManager.handoffDJRole(selectedUserId);
+        const selectedMember = eligibleMembers.find(m => m.userId === selectedUserId);
+        ui.notifications?.success(`DJ role handed off to ${selectedMember?.name}`);
+      }
       
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to handoff DJ role:', error);
+      ui.notifications?.error('Failed to hand off DJ role');
     }
   }
 

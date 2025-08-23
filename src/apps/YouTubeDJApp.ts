@@ -158,6 +158,13 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   private async initializeUIComponents(): Promise<void> {
     if (!this.element) return;
 
+    // Only initialize components if user has joined session
+    const sessionState = this.store.getSessionState();
+    if (!sessionState.hasJoinedSession) {
+      logger.debug('🎵 YouTube DJ | Skipping component initialization - not in session');
+      return;
+    }
+
     // Get the content element where the template is rendered
     const contentElement = this.element.querySelector('.window-content') as HTMLElement;
     if (!contentElement) {
@@ -357,9 +364,18 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       componentsInitialized: !!(this.sessionControlsComponent && this.queueSectionComponent)
     });
 
-    // Only render template on initial render or structural changes
-    if (!this.sessionControlsComponent) {
-      logger.debug('🎵 YouTube DJ | Initial render - setting up template and components');
+    // Check session state to determine if we need to re-initialize
+    const sessionState = this.store.getSessionState();
+    const needsComponentInit = sessionState.hasJoinedSession && !this.sessionControlsComponent;
+    const needsFullRender = !this.sessionControlsComponent || 
+                           (sessionState.hasJoinedSession && !this.element?.querySelector('.session-control-section'));
+    
+    // Render template on initial render or when session state changes
+    if (needsFullRender) {
+      logger.debug('🎵 YouTube DJ | Rendering template - components need setup', {
+        hasJoinedSession: sessionState.hasJoinedSession,
+        hasComponents: !!this.sessionControlsComponent
+      });
       
       // Render main template structure (component containers only)
       if (contentElement) {
@@ -378,13 +394,27 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       this.domEventCleanup.forEach(cleanup => cleanup());
       this.domEventCleanup = [];
       
-      // Initialize UI components
+      // Destroy existing components if they exist
+      if (this.sessionControlsComponent) {
+        this.sessionControlsComponent.destroy();
+        this.sessionControlsComponent = null as any;
+      }
+      if (this.queueSectionComponent) {
+        this.queueSectionComponent.destroy();
+        this.queueSectionComponent = null as any;
+      }
+      if (this.playerControlsComponent) {
+        this.playerControlsComponent.destroy();
+        this.playerControlsComponent = null as any;
+      }
+      
+      // Initialize UI components (will check for hasJoinedSession internally)
       await this.initializeUIComponents();
       
       // Setup DOM event listeners
       this.setupEventListeners();
       
-      logger.debug('🎵 YouTube DJ | Initial component setup completed');
+      logger.debug('🎵 YouTube DJ | Component setup completed');
     } else {
       // For subsequent renders, components handle their own updates
       logger.debug('🎵 YouTube DJ | Subsequent render - components handle updates');
