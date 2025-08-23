@@ -13,9 +13,6 @@
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "types": [
-      "@league-of-foundry-developers/foundry-vtt-types"
-    ],
     "typeRoots": [
       "./node_modules/@types",
       "./node_modules/@league-of-foundry-developers"
