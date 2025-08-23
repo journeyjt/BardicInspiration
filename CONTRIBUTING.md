@@ -38,7 +38,7 @@ Feature suggestions are welcome! Please use our [feature request template](.gith
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/journeyjt/BardicInspiration.git
+   git clone https://github.com/yourusername/BardicInspiration.git
    cd BardicInspiration
    ```
 
@@ -72,7 +72,6 @@ npm run build  # Creates production build and module.zip
 
 - Use CSS custom properties for theming
 - Follow the existing design system (see `src/styles/main.css`)
-- Maintain consistency with the modern blue theme
 
 ### Git Commit Messages
 
@@ -107,10 +106,6 @@ Before submitting a PR, please test:
 
 Currently, this project doesn't have automated tests. Contributions to add testing infrastructure are welcome!
 
-## Module Architecture
-
-Please refer to [CLAUDE.md](CLAUDE.md) for detailed information about the module's architecture and design patterns.
-
 ## Documentation
 
 - Update README.md if you change functionality
@@ -120,7 +115,7 @@ Please refer to [CLAUDE.md](CLAUDE.md) for detailed information about the module
 
 ## Questions?
 
-Feel free to open an issue for any questions about contributing or join the discussion in our [GitHub Discussions](https://github.com/journeyjt/BardicInspiration/discussions).
+Feel free to open an issue for any questions about contributing or join the discussion in our [GitHub Discussions](https://github.com/yourusername/BardicInspiration/discussions).
 
 ## License
 
