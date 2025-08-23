@@ -18,6 +18,7 @@ export interface SessionMember {
   isDJ: boolean;
   isActive: boolean;
   missedHeartbeats: number;
+  lastActivity?: number;
 }
 
 export interface VideoItem {

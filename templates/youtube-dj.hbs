@@ -5,18 +5,6 @@
         <i class="fas fa-music"></i>
         YouTube DJ
       </h2>
-      <div class="header-stats">
-        {{#if hasJoinedSession}}
-        <div class="stat-item">
-          <i class="fas fa-users"></i>
-          <span>{{sessionMembers.length}} Connected</span>
-        </div>
-        <div class="stat-item">
-          <i class="fas fa-list"></i>
-          <span>{{queueLength}} Queued</span>
-        </div>
-        {{/if}}
-      </div>
     </div>
     <div class="header-status">
       {{#if hasJoinedSession}}
@@ -24,11 +12,6 @@
           <div class="status-badge status-dj">
             <i class="fas fa-microphone"></i>
             <span>DJ Mode</span>
-          </div>
-        {{else}}
-          <div class="status-badge status-listener">
-            <i class="fas fa-headphones"></i>
-            <span>Listening</span>
           </div>
         {{/if}}
       {{else}}
@@ -57,12 +40,7 @@
     <!-- Component container - content rendered by SessionControlsComponent -->
   </div>
 
-  <!-- Player Controls Section -->
-  <div class="control-section player-controls-section">
-    <!-- Component container - content rendered by PlayerControlsComponent -->
-  </div>
-
-  <!-- Queue Section -->
+  <!-- Queue Section (with integrated player controls) -->
   <div class="control-section queue-section">
     <!-- Component container - content rendered by QueueSectionComponent -->
   </div>

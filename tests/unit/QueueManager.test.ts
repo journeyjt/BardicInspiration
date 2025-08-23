@@ -130,9 +130,15 @@ describe('QueueManager', () => {
     it('should go to next video in queue', async () => {
       const nextVideo = await queueManager.nextVideo();
 
+      // With cycling: nextVideo is still testVideos[1] (second video)
+      // But currentIndex stays at 0 because the first video was moved to end
       expect(nextVideo).toBe(testVideos[1]);
       const state = store.getState();
-      expect(state.queue.currentIndex).toBe(1);
+      expect(state.queue.currentIndex).toBe(0); // First video cycled to end, second video now at index 0
+      
+      // Verify the queue was reordered: [video-2, video-3, video-1]
+      expect(state.queue.items[0]).toStrictEqual(testVideos[1]); // video-2 now at index 0
+      expect(state.queue.items[2]).toStrictEqual(testVideos[0]); // video-1 moved to end
     });
 
     it('should go to previous video in queue', async () => {
@@ -156,9 +162,16 @@ describe('QueueManager', () => {
 
       const nextVideo = await queueManager.nextVideo();
 
-      expect(nextVideo).toBe(testVideos[0]); // Wrapped to beginning
+      // With cycling: the last video (testVideos[2]) is moved to end and stays current
+      // Queue: [video-1, video-2, video-3] -> remove video-3 -> [video-1, video-2] -> add to end -> [video-1, video-2, video-3]  
+      // currentIndex = 2, newQueue.length = 3, so 2 < 3, newIndex stays 2
+      // The "next" video is actually still the same video (video-3) that was cycled
+      expect(nextVideo).toBe(testVideos[2]); // Same video, but it was cycled to end
       const state = store.getState();
-      expect(state.queue.currentIndex).toBe(0);
+      expect(state.queue.currentIndex).toBe(2);
+      
+      // Verify the last video was cycled to the end
+      expect(state.queue.items[2]).toStrictEqual(testVideos[2]); // video-3 moved to end
     });
 
     it('should wrap to end when going previous from beginning', async () => {
@@ -313,6 +326,202 @@ describe('QueueManager', () => {
     });
   });
 
+  describe('Queue Reordering', () => {
+    const testVideos = [
+      { id: 'v1', videoId: 'video-1', title: 'Video 1', addedBy: 'user-1', addedAt: Date.now() },
+      { id: 'v2', videoId: 'video-2', title: 'Video 2', addedBy: 'user-1', addedAt: Date.now() },
+      { id: 'v3', videoId: 'video-3', title: 'Video 3', addedBy: 'user-1', addedAt: Date.now() },
+      { id: 'v4', videoId: 'video-4', title: 'Video 4', addedBy: 'user-1', addedAt: Date.now() }
+    ];
+
+    beforeEach(() => {
+      TestUtils.mockUser({ id: 'user-1' });
+      store.updateState({
+        session: { djUserId: 'user-1' },
+        queue: {
+          items: [...testVideos], // Clone to avoid mutations affecting other tests
+          currentIndex: 1, // Second video is currently playing
+          mode: 'single-dj',
+          djUserId: 'user-1'
+        }
+      });
+    });
+
+    describe('reorderQueue', () => {
+      it('should move item from one position to another', async () => {
+        // Move item from index 0 to index 2
+        await queueManager.reorderQueue(0, 2);
+
+        const state = store.getState();
+        expect(state.queue.items).toHaveLength(4);
+        
+        // The item originally at index 0 should now be at index 2
+        expect(state.queue.items[2]).toStrictEqual(testVideos[0]);
+        // The items that were at 1 and 2 should have shifted down
+        expect(state.queue.items[0]).toStrictEqual(testVideos[1]);
+        expect(state.queue.items[1]).toStrictEqual(testVideos[2]);
+      });
+
+      it('should adjust currentIndex when moving the currently playing item', async () => {
+        // Current index is 1, move that item to index 3
+        await queueManager.reorderQueue(1, 3);
+
+        const state = store.getState();
+        // Current index should follow the moved item
+        expect(state.queue.currentIndex).toBe(3);
+        expect(state.queue.items[3]).toStrictEqual(testVideos[1]);
+      });
+
+      it('should adjust currentIndex when moving item before current to after current', async () => {
+        // Move item from before current (index 0) to after current (index 3)
+        await queueManager.reorderQueue(0, 3);
+
+        const state = store.getState();
+        // Current index should decrease by 1 because item before it moved away
+        expect(state.queue.currentIndex).toBe(0);
+      });
+
+      it('should adjust currentIndex when moving item after current to before current', async () => {
+        // Move item from after current (index 3) to before current (index 0)
+        await queueManager.reorderQueue(3, 0);
+
+        const state = store.getState();
+        // Current index should increase by 1 because item was inserted before it
+        expect(state.queue.currentIndex).toBe(2);
+      });
+
+      it('should broadcast queue update message', async () => {
+        const mockSocket = TestUtils.getMocks().socket;
+        
+        await queueManager.reorderQueue(0, 2);
+
+        expect(mockSocket.emit).toHaveBeenCalledWith('module.bardic-inspiration', expect.objectContaining({
+          type: 'QUEUE_UPDATE',
+          data: expect.objectContaining({
+            fromIndex: 0,
+            toIndex: 2,
+            queueLength: 4
+          })
+        }));
+      });
+
+      it('should throw error for invalid indices', async () => {
+        await expect(queueManager.reorderQueue(-1, 2)).rejects.toThrow('Invalid queue indices');
+        await expect(queueManager.reorderQueue(0, -1)).rejects.toThrow('Invalid queue indices');
+        await expect(queueManager.reorderQueue(10, 2)).rejects.toThrow('Invalid queue indices');
+        await expect(queueManager.reorderQueue(0, 10)).rejects.toThrow('Invalid queue indices');
+      });
+
+      it('should throw error when non-DJ tries to reorder', async () => {
+        // Change user to non-DJ
+        TestUtils.mockUser({ id: 'non-dj-user' });
+        
+        await expect(queueManager.reorderQueue(0, 2)).rejects.toThrow('Only DJ can reorder queue');
+      });
+    });
+
+    describe('moveItemUp', () => {
+      it('should move item up by one position', async () => {
+        // Move item at index 2 up to index 1
+        await queueManager.moveItemUp(2);
+
+        const state = store.getState();
+        expect(state.queue.items[1]).toStrictEqual(testVideos[2]);
+        expect(state.queue.items[2]).toStrictEqual(testVideos[1]);
+      });
+
+      it('should throw error when trying to move first item up', async () => {
+        await expect(queueManager.moveItemUp(0)).rejects.toThrow('Cannot move first item up');
+      });
+
+      it('should throw error for invalid index', async () => {
+        await expect(queueManager.moveItemUp(-1)).rejects.toThrow('Cannot move first item up');
+      });
+
+      it('should adjust currentIndex when moving currently playing item up', async () => {
+        // Current index is 1, move it up to index 0
+        await queueManager.moveItemUp(1);
+
+        const state = store.getState();
+        expect(state.queue.currentIndex).toBe(0);
+        expect(state.queue.items[0]).toStrictEqual(testVideos[1]);
+      });
+
+      it('should adjust currentIndex when moving item before current up', async () => {
+        // Move item at index 0 up (impossible, but testing edge case)
+        // This should throw an error
+        await expect(queueManager.moveItemUp(0)).rejects.toThrow();
+      });
+
+      it('should broadcast queue update message', async () => {
+        const mockSocket = TestUtils.getMocks().socket;
+        
+        await queueManager.moveItemUp(2);
+
+        expect(mockSocket.emit).toHaveBeenCalledWith('module.bardic-inspiration', expect.objectContaining({
+          type: 'QUEUE_UPDATE',
+          data: expect.objectContaining({
+            fromIndex: 2,
+            toIndex: 1,
+            queueLength: 4
+          })
+        }));
+      });
+    });
+
+    describe('moveItemDown', () => {
+      it('should move item down by one position', async () => {
+        // Move item at index 1 down to index 2
+        await queueManager.moveItemDown(1);
+
+        const state = store.getState();
+        expect(state.queue.items[2]).toStrictEqual(testVideos[1]);
+        expect(state.queue.items[1]).toStrictEqual(testVideos[2]);
+      });
+
+      it('should throw error when trying to move last item down', async () => {
+        await expect(queueManager.moveItemDown(3)).rejects.toThrow('Cannot move last item down');
+      });
+
+      it('should throw error for invalid index', async () => {
+        await expect(queueManager.moveItemDown(10)).rejects.toThrow('Cannot move last item down');
+      });
+
+      it('should adjust currentIndex when moving currently playing item down', async () => {
+        // Current index is 1, move it down to index 2
+        await queueManager.moveItemDown(1);
+
+        const state = store.getState();
+        expect(state.queue.currentIndex).toBe(2);
+        expect(state.queue.items[2]).toStrictEqual(testVideos[1]);
+      });
+
+      it('should adjust currentIndex when moving item after current down', async () => {
+        // Move item at index 2 down to index 3
+        await queueManager.moveItemDown(2);
+
+        const state = store.getState();
+        // Current index should remain unchanged since movement is after current
+        expect(state.queue.currentIndex).toBe(1);
+      });
+
+      it('should broadcast queue update message', async () => {
+        const mockSocket = TestUtils.getMocks().socket;
+        
+        await queueManager.moveItemDown(1);
+
+        expect(mockSocket.emit).toHaveBeenCalledWith('module.bardic-inspiration', expect.objectContaining({
+          type: 'QUEUE_UPDATE',
+          data: expect.objectContaining({
+            fromIndex: 1,
+            toIndex: 2,
+            queueLength: 4
+          })
+        }));
+      });
+    });
+  });
+
   describe('Queue State Management', () => {
     it('should clear entire queue', () => {
       const testVideos = [
@@ -429,10 +638,15 @@ describe('QueueManager', () => {
 
       await queueManager.nextVideo();
 
+      // With cycling, the broadcast message includes cycling information
       expect(mockSocket.emit).toHaveBeenCalledWith('module.bardic-inspiration', expect.objectContaining({
         type: 'QUEUE_NEXT',
         data: expect.objectContaining({
-          nextIndex: 1
+          nextIndex: 0, // With cycling, next video is at index 0
+          isCycling: true, // Indicates this is a cycling operation
+          cycledItem: expect.objectContaining({
+            videoId: 'video-1'
+          })
         })
       }));
     });

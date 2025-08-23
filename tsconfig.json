@@ -31,7 +31,8 @@
   },
   "include": [
     "src/**/*",
-    "scripts/**/*"
+    "scripts/**/*",
+    "src/types/foundry-global.d.ts"
   ],
   "exclude": [
     "node_modules",

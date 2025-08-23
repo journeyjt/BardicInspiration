@@ -1,6 +1,6 @@
 {
   "name": "bardic-inspiration",
-  "version": "0.9.20",
+  "version": "1.0.0",
   "description": "A Foundry VTT module",
   "type": "module",
   "scripts": {

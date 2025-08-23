@@ -150,11 +150,16 @@ describe('Core User Flows E2E', () => {
       await queueManager.nextVideo();
       
       state = store.getState();
-      expect(state.queue.currentIndex).toBe(1);
+      // With cycling behavior: First Song moves to end, Second Song is now at index 0
+      expect(state.queue.currentIndex).toBe(0);
 
       const newCurrentVideo = queueManager.getCurrentVideo();
       expect(newCurrentVideo?.videoId).toBe('jNQXAC9IVRw');
       expect(newCurrentVideo?.title).toBe('Second Song');
+      
+      // Verify the queue was reordered: [Second Song, First Song]
+      expect(state.queue.items[0].videoId).toBe('jNQXAC9IVRw'); // Second Song now at index 0
+      expect(state.queue.items[1].videoId).toBe('dQw4w9WgXcQ'); // First Song cycled to end
 
       // === PHASE 7: Session ends gracefully ===
       // All users leave session

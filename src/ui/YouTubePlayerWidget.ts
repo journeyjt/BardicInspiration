@@ -5,7 +5,7 @@
 
 import { logger } from '../lib/logger.js';
 import { SessionStore } from '../state/SessionStore.js';
-import { StateChangeEvent } from '../state/StateTypes.js';
+import { StateChangeEvent, VideoInfo } from '../state/StateTypes.js';
 
 export class YouTubePlayerWidget {
   private static instance: YouTubePlayerWidget | null = null;
@@ -26,6 +26,9 @@ export class YouTubePlayerWidget {
     Hooks.on('youtubeDJ.stateChanged', this.onStateChanged.bind(this));
     Hooks.on('youtubeDJ.playerCommand', this.onPlayerCommand.bind(this));
     Hooks.on('youtubeDJ.getCurrentTimeRequest', this.onGetCurrentTimeRequest.bind(this));
+    
+    // Subscribe to session state for handoff request notifications
+    this.subscribeToNotifications();
     
     // Listen for socket messages for multi-user synchronization
     game.socket?.on('module.bardic-inspiration', this.onSocketMessage.bind(this));
@@ -140,6 +143,18 @@ export class YouTubePlayerWidget {
   }
 
   /**
+   * Subscribe to notification-related state changes
+   */
+  private subscribeToNotifications(): void {
+    // Listen for changes to activeRequests that affect current user
+    Hooks.on('youtubeDJ.stateChanged', (event: StateChangeEvent) => {
+      if (event.changes.session?.activeRequests !== undefined) {
+        this.updateHandoffNotifications();
+      }
+    });
+  }
+
+  /**
    * Perform selective updates to the widget without destroying the iframe
    */
   private updateWidgetSelectively(state: any): void {
@@ -172,6 +187,9 @@ export class YouTubePlayerWidget {
         </button>
       `;
     }
+    
+    // Update handoff notifications if session state changed
+    this.updateHandoffNotifications();
     
     // Update title with status
     const widgetTitle = this.widgetElement.querySelector('.widget-title');
@@ -273,6 +291,9 @@ export class YouTubePlayerWidget {
       `;
     }
     
+    // Always update handoff notifications after selective update
+    this.updateHandoffNotifications();
+    
     logger.debug('🎵 YouTube DJ | Widget selectively updated, iframe preserved');
   }
 
@@ -313,6 +334,67 @@ export class YouTubePlayerWidget {
           position: relative;
           z-index: 9999;
           pointer-events: auto;
+        }
+        
+        .handoff-notification {
+          background: rgba(255, 193, 7, 0.9);
+          border: 1px solid #ffc107;
+          border-radius: 4px;
+          padding: 8px;
+          margin-bottom: 8px;
+          color: #212529;
+          font-size: 11px;
+          animation: slideIn 0.3s ease;
+        }
+        
+        .handoff-notification-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 6px;
+          font-weight: bold;
+        }
+        
+        .handoff-notification-title {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+        }
+        
+        .handoff-notification-actions {
+          display: flex;
+          gap: 4px;
+          margin-top: 6px;
+        }
+        
+        .handoff-action-btn {
+          background: #28a745;
+          border: none;
+          color: white;
+          padding: 2px 6px;
+          border-radius: 2px;
+          font-size: 10px;
+          cursor: pointer;
+          transition: background 0.2s;
+        }
+        
+        .handoff-action-btn.deny {
+          background: #dc3545;
+        }
+        
+        .handoff-action-btn:hover {
+          opacity: 0.8;
+        }
+        
+        @keyframes slideIn {
+          from {
+            opacity: 0;
+            transform: translateY(-10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
         }
         
         .youtube-dj-widget.maximized {
@@ -508,6 +590,9 @@ export class YouTubePlayerWidget {
         
       </style>
       
+      <!-- Handoff Request Notifications -->
+      <div class="handoff-notifications"></div>
+      
       <div class="widget-header">
         <div class="widget-title">
           <i class="fas fa-music"></i>
@@ -603,6 +688,9 @@ export class YouTubePlayerWidget {
     if (hasJoinedSession) {
       this.attachVolumeSliderListeners();
     }
+    
+    // Update handoff notifications after full render
+    this.updateHandoffNotifications();
   }
 
   /**
@@ -721,17 +809,6 @@ export class YouTubePlayerWidget {
         const containerAfterCreation = document.getElementById(this.containerId);
         const iframe = containerAfterCreation?.querySelector('iframe');
         
-        // PRODUCTION DEBUG: Detailed iframe creation check
-        logger.debug('🎵  Post-creation check (100ms):', {
-          containerStillExists: !!containerAfterCreation,
-          iframeCreated: !!iframe,
-          containerContent: containerAfterCreation?.innerHTML || 'no content',
-          containerChildren: containerAfterCreation?.children.length || 0,
-          iframeSrc: iframe?.getAttribute('src'),
-          containerParent: containerAfterCreation?.parentElement?.tagName,
-          containerClasses: containerAfterCreation?.className,
-          containerStyle: containerAfterCreation?.getAttribute('style')
-        });
         
         logger.debug('🎵 YouTube DJ | Post-creation check (100ms):', {
           containerStillExists: !!containerAfterCreation,
@@ -746,15 +823,6 @@ export class YouTubePlayerWidget {
             const laterContainer = document.getElementById(this.containerId);
             const laterIframe = laterContainer?.querySelector('iframe');
             
-            // PRODUCTION DEBUG: Delayed iframe check
-            logger.debug('🎵  Post-creation check (1000ms):', {
-              containerExists: !!laterContainer,
-              iframeCreated: !!laterIframe,
-              containerHTML: laterContainer?.innerHTML || 'no content',
-              iframeSrc: laterIframe?.getAttribute('src'),
-              playerReady: this.isPlayerReady,
-              playerObject: !!this.player
-            });
             
             logger.debug('🎵 YouTube DJ | Post-creation check (1000ms):', {
               containerExists: !!laterContainer,
@@ -774,14 +842,6 @@ export class YouTubePlayerWidget {
    * Player ready event handler
    */
   private onPlayerReady(event: YT.PlayerEvent): void {
-    // PRODUCTION DEBUG: Player ready event fired
-    logger.debug('🎵  Player ready event fired:', {
-      event: !!event,
-      target: event?.target?.constructor?.name,
-      playerId: event?.target?.h?.id,
-      container: document.getElementById(this.containerId)?.tagName,
-      iframe: !!document.querySelector(`#${this.containerId} iframe`)
-    });
     
     // CRITICAL: Check if iframe was actually created despite "ready" event
     setTimeout(() => {
@@ -818,6 +878,46 @@ export class YouTubePlayerWidget {
     const initialMuteState = this.player?.isMuted() || false;
     const initialVolume = this.player?.getVolume() || 50;
     
+    // Get currently loaded video information from the YouTube player
+    let loadedVideoInfo: VideoInfo | null = null;
+    try {
+      // Get the video URL from the YouTube player
+      const videoUrl = this.player?.getVideoUrl();
+      if (videoUrl) {
+        // Extract video ID from URL (e.g., "https://www.youtube.com/watch?v=dQw4w9WgXcQ" -> "dQw4w9WgXcQ")
+        const urlMatch = videoUrl.match(/[?&]v=([^&]+)/);
+        const videoId = urlMatch?.[1];
+        if (videoId) {
+          // Create video info object for the loaded video
+          loadedVideoInfo = {
+            videoId: videoId,
+            title: `Video ${videoId}`, // Placeholder title - will be updated when actual video info is fetched
+            duration: this.player?.getDuration() || 0
+          };
+          
+          logger.debug('🎵 YouTube DJ | Widget detected loaded video on player ready:', {
+            videoId: loadedVideoInfo.videoId,
+            duration: loadedVideoInfo.duration,
+            source: 'widget initialization'
+          });
+        }
+      }
+    } catch (error) {
+      logger.debug('🎵 YouTube DJ | Could not get initial video info from player:', error);
+      // Fallback: If we can't get it from the player, assume default video is loaded
+      const queueState = this.store.getQueueState();
+      const hasQueueVideo = queueState.items.length > 0 && queueState.currentIndex >= 0;
+      if (!hasQueueVideo) {
+        // Default video was loaded during initialization
+        loadedVideoInfo = {
+          videoId: 'dQw4w9WgXcQ',
+          title: 'Never Gonna Give You Up',
+          duration: 213
+        };
+        logger.debug('🎵 YouTube DJ | Using fallback default video info on player ready');
+      }
+    }
+    
     // Update state without triggering re-render
     this.store.updateState({
       player: {
@@ -825,7 +925,8 @@ export class YouTubePlayerWidget {
         isReady: true,
         isInitializing: false,
         isMuted: initialMuteState,
-        volume: initialVolume
+        volume: initialVolume,
+        currentVideo: loadedVideoInfo
       }
     });
 
@@ -977,15 +1078,6 @@ export class YouTubePlayerWidget {
    * Player error handler
    */
   private onPlayerError(event: YT.OnErrorEvent): void {
-    // PRODUCTION DEBUG: Player error event
-    logger.debug('🎵  Player error event:', {
-      errorCode: event.data,
-      errorType: typeof event.data,
-      event: event,
-      target: event?.target?.constructor?.name,
-      container: document.getElementById(this.containerId)?.tagName,
-      iframe: !!document.querySelector(`#${this.containerId} iframe`)
-    });
     
     logger.error('🎵 YouTube DJ | Widget player error:', event.data);
     ui.notifications?.error(`YouTube Player Error: ${event.data}`);
@@ -1098,20 +1190,6 @@ export class YouTubePlayerWidget {
    * Handle state changes from SessionStore
    */
   private onStateChanged(event: StateChangeEvent): void {
-    // PRODUCTION DEBUG: Log all state changes that could trigger re-renders
-    logger.debug('🎵  State change event received:', {
-      isJoiningSession: this.isJoiningSession,
-      changes: Object.keys(event.changes || {}),
-      sessionChanges: Object.keys(event.changes?.session || {}),
-      playerChanges: Object.keys(event.changes?.player || {}),
-      queueChanges: Object.keys(event.changes?.queue || {}),
-      hasJoinedSession: {
-        previous: event.previous?.session?.hasJoinedSession,
-        current: event.changes?.session?.hasJoinedSession
-      },
-      playerReady: this.isPlayerReady,
-      iframeExists: !!document.querySelector(`#${this.containerId} iframe`)
-    });
     
     // Skip renders while joining session to prevent iframe destruction
     if (this.isJoiningSession) {
@@ -1481,14 +1559,6 @@ export class YouTubePlayerWidget {
    * THIS IS THE ONLY INTENDED WAY TO JOIN SESSIONS
    */
   async joinSession(): Promise<void> {
-    // PRODUCTION DEBUG: Session join start
-    logger.debug('🎵  Session join starting:', {
-      playerExists: !!this.player,
-      playerReady: this.isPlayerReady,
-      containerExists: !!document.getElementById(this.containerId),
-      iframe: !!document.querySelector(`#${this.containerId} iframe`),
-      isJoiningSession: this.isJoiningSession
-    });
     
     logger.debug('🎵 YouTube DJ | Joining session from widget...');
     
@@ -1498,28 +1568,11 @@ export class YouTubePlayerWidget {
     try {
       // Check if iframe exists and restore it if needed
       try {
-        // PRODUCTION DEBUG: Before ensure player exists
-        logger.debug('🎵  Before ensurePlayerExists:', {
-          playerExists: !!this.player,
-          playerReady: this.isPlayerReady,
-          containerExists: !!document.getElementById(this.containerId),
-          iframe: !!document.querySelector(`#${this.containerId} iframe`),
-          containerHTML: document.getElementById(this.containerId)?.innerHTML
-        });
         
         await this.ensurePlayerExists();
         
-        // PRODUCTION DEBUG: After ensure player exists
-        logger.debug('🎵  After ensurePlayerExists:', {
-          playerExists: !!this.player,
-          playerReady: this.isPlayerReady,
-          containerExists: !!document.getElementById(this.containerId),
-          iframe: !!document.querySelector(`#${this.containerId} iframe`),
-          containerHTML: document.getElementById(this.containerId)?.innerHTML
-        });
       } catch (error) {
-        // PRODUCTION DEBUG: ensurePlayerExists failed
-        logger.debug('🎵  ensurePlayerExists failed:', {
+        logger.debug('🎵 YouTube DJ | ensurePlayerExists failed:', {
           error: error.message,
           playerExists: !!this.player,
           playerReady: this.isPlayerReady,
@@ -1676,6 +1729,22 @@ export class YouTubePlayerWidget {
             members: updatedMembers,
             // If leaving user was DJ, clear DJ role
             djUserId: sessionState.djUserId === currentUser.id ? null : sessionState.djUserId
+          },
+          // Reset player state when leaving session
+          player: {
+            isReady: false,
+            isInitializing: false,
+            isRecreating: false,
+            playbackState: 'paused' as const,
+            currentVideo: null,
+            currentTime: 0,
+            duration: 0,
+            volume: this.store.getPlayerState().volume || 50, // Preserve volume setting
+            isMuted: false,
+            autoplayConsent: false,
+            lastHeartbeat: null,
+            driftTolerance: 1.0,
+            heartbeatFrequency: 2000
           }
         });
       }
@@ -2278,6 +2347,113 @@ export class YouTubePlayerWidget {
     volumeSlider.addEventListener('change', this.onVolumeChange.bind(this));
 
     logger.debug('🎵 YouTube DJ | Volume slider event listeners attached');
+  }
+
+  /**
+   * Update handoff request notifications without affecting the player
+   */
+  private updateHandoffNotifications(): void {
+    if (!this.widgetElement) return;
+    
+    const sessionState = this.store.getSessionState();
+    const currentUserId = game.user?.id;
+    const isDJ = this.store.isDJ();
+    const hasJoinedSession = sessionState.hasJoinedSession;
+    
+    // Only show handoff notifications to the current DJ when they have joined session
+    if (!isDJ || !hasJoinedSession || !currentUserId) {
+      // Clear any existing notifications
+      const notificationArea = this.widgetElement.querySelector('.handoff-notifications');
+      if (notificationArea) {
+        notificationArea.innerHTML = '';
+      }
+      return;
+    }
+    
+    const activeRequests = sessionState.activeRequests || [];
+    const notificationArea = this.widgetElement.querySelector('.handoff-notifications');
+    
+    if (!notificationArea) {
+      logger.warn('🎵 YouTube DJ | Handoff notification area not found');
+      return;
+    }
+    
+    if (activeRequests.length === 0) {
+      // No requests, clear notifications
+      notificationArea.innerHTML = '';
+      return;
+    }
+    
+    // Build notifications HTML for each request
+    const notificationsHTML = activeRequests.map(request => {
+      return `
+        <div class="handoff-notification" data-requester-id="${request.userId}">
+          <div class="handoff-notification-header">
+            <div class="handoff-notification-title">
+              <i class="fas fa-hand-paper"></i>
+              DJ Handoff Request
+            </div>
+          </div>
+          <div class="handoff-notification-content">
+            <strong>${request.userName}</strong> requests DJ role
+          </div>
+          <div class="handoff-notification-actions">
+            <button class="handoff-action-btn approve" onclick="window.youtubeDJWidget?.approveHandoffRequest('${request.userId}')" title="Approve Request">
+              <i class="fas fa-check"></i> Approve
+            </button>
+            <button class="handoff-action-btn deny" onclick="window.youtubeDJWidget?.denyHandoffRequest('${request.userId}')" title="Deny Request">
+              <i class="fas fa-times"></i> Deny
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    
+    notificationArea.innerHTML = notificationsHTML;
+    
+    logger.debug(`🎵 YouTube DJ | Updated handoff notifications: ${activeRequests.length} requests`);
+  }
+  
+  /**
+   * Approve a handoff request from the widget notification
+   */
+  async approveHandoffRequest(requesterId: string): Promise<void> {
+    logger.debug('🎵 YouTube DJ | Approving handoff request from widget:', requesterId);
+    
+    try {
+      // Get the global SessionManager instance
+      const sessionManager = (globalThis as any).youtubeDJSessionManager;
+      if (sessionManager && typeof sessionManager.approveDJRequest === 'function') {
+        await sessionManager.approveDJRequest(requesterId);
+      } else {
+        logger.error('🎵 YouTube DJ | SessionManager not available for handoff approval');
+        ui.notifications?.error('Could not approve handoff request. Please try from the control window.');
+      }
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to approve handoff request:', error);
+      ui.notifications?.error('Failed to approve handoff request.');
+    }
+  }
+  
+  /**
+   * Deny a handoff request from the widget notification
+   */
+  async denyHandoffRequest(requesterId: string): Promise<void> {
+    logger.debug('🎵 YouTube DJ | Denying handoff request from widget:', requesterId);
+    
+    try {
+      // Get the global SessionManager instance
+      const sessionManager = (globalThis as any).youtubeDJSessionManager;
+      if (sessionManager && typeof sessionManager.denyDJRequest === 'function') {
+        await sessionManager.denyDJRequest(requesterId);
+      } else {
+        logger.error('🎵 YouTube DJ | SessionManager not available for handoff denial');
+        ui.notifications?.error('Could not deny handoff request. Please try from the control window.');
+      }
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to deny handoff request:', error);
+      ui.notifications?.error('Failed to deny handoff request.');
+    }
   }
 
   /**

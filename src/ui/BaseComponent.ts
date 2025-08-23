@@ -35,6 +35,7 @@ export abstract class BaseComponent {
   protected isInitialized: boolean = false;
   protected lastRenderTime: number = 0;
   protected renderDebounced: () => void;
+  private subscriptionValues: Map<string, any> = new Map();
 
   constructor(store: SessionStore, parentElement: HTMLElement, config: ComponentConfig) {
     this.store = store;
@@ -61,6 +62,9 @@ export abstract class BaseComponent {
       return;
     }
 
+    // Initialize subscription value cache
+    this.initializeSubscriptionCache();
+
     // Setup state change listeners for subscribed state slices
     this.setupStateListeners();
 
@@ -69,6 +73,18 @@ export abstract class BaseComponent {
 
     this.isInitialized = true;
     logger.debug(`🎵 YouTube DJ | Component ${this.config.selector} initialized`);
+  }
+
+  /**
+   * Initialize the subscription value cache with current values
+   */
+  private initializeSubscriptionCache(): void {
+    this.config.stateSubscriptions.forEach(subscription => {
+      const currentValue = this.getValueByPath(this.store.getState(), subscription);
+      this.subscriptionValues.set(subscription, this.deepClone(currentValue));
+    });
+    logger.debug(`🎵 YouTube DJ | Component ${this.config.selector} subscription cache initialized for:`, 
+      this.config.stateSubscriptions);
   }
 
   /**
@@ -89,21 +105,76 @@ export abstract class BaseComponent {
   protected shouldUpdate(event: StateChangeEvent): boolean {
     const changes = event.changes;
     
-    // Check if any of our subscribed state slices changed
+    // Check if any of our subscribed state values actually changed
     return this.config.stateSubscriptions.some(subscription => {
-      const keys = subscription.split('.');
-      let current = changes;
+      // Get current value from store
+      const currentValue = this.getValueByPath(this.store.getState(), subscription);
       
-      for (const key of keys) {
-        if (current && typeof current === 'object' && key in current) {
-          current = current[key];
-        } else {
-          return false;
-        }
+      // Get previous value from our cache
+      const previousValue = this.subscriptionValues.get(subscription);
+      
+      // Check if the value actually changed (deep comparison for objects/arrays)
+      const hasChanged = !this.deepEquals(currentValue, previousValue);
+      
+      // Update cached value for next comparison
+      if (hasChanged) {
+        this.subscriptionValues.set(subscription, this.deepClone(currentValue));
+        logger.debug(`🎵 YouTube DJ | Component ${this.config.selector} subscription "${subscription}" changed:`, 
+          { from: previousValue, to: currentValue });
       }
       
-      return current !== undefined;
+      return hasChanged;
     });
+  }
+
+  /**
+   * Get value from object using dot notation path
+   */
+  private getValueByPath(obj: any, path: string): any {
+    return path.split('.').reduce((current, key) => {
+      return current && typeof current === 'object' ? current[key] : undefined;
+    }, obj);
+  }
+
+  /**
+   * Deep equality check for primitive values, objects, and arrays
+   */
+  private deepEquals(a: any, b: any): boolean {
+    if (a === b) return true;
+    if (a == null || b == null) return a === b;
+    if (typeof a !== typeof b) return false;
+    
+    if (Array.isArray(a)) {
+      if (!Array.isArray(b) || a.length !== b.length) return false;
+      return a.every((item, index) => this.deepEquals(item, b[index]));
+    }
+    
+    if (typeof a === 'object') {
+      const keysA = Object.keys(a);
+      const keysB = Object.keys(b);
+      if (keysA.length !== keysB.length) return false;
+      return keysA.every(key => keysB.includes(key) && this.deepEquals(a[key], b[key]));
+    }
+    
+    return false;
+  }
+
+  /**
+   * Deep clone for caching subscription values
+   */
+  private deepClone(obj: any): any {
+    if (obj === null || typeof obj !== 'object') return obj;
+    if (Array.isArray(obj)) return obj.map(item => this.deepClone(item));
+    if (typeof obj === 'object') {
+      const cloned: any = {};
+      for (const key in obj) {
+        if (obj.hasOwnProperty(key)) {
+          cloned[key] = this.deepClone(obj[key]);
+        }
+      }
+      return cloned;
+    }
+    return obj;
   }
 
   /**
@@ -184,6 +255,9 @@ export abstract class BaseComponent {
     // Clean up state listeners
     this.cleanupFunctions.forEach(cleanup => cleanup());
     this.cleanupFunctions = [];
+
+    // Clear subscription cache
+    this.subscriptionValues.clear();
 
     this.componentElement = null;
     this.isInitialized = false;

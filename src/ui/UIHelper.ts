@@ -277,26 +277,47 @@ export class UIHelper {
       yesLabel?: string;
       noLabel?: string;
       defaultYes?: boolean;
+      icon?: string;
+      type?: 'info' | 'warning' | 'danger' | 'success';
     } = {}
   ): Promise<boolean> {
-    return new Promise((resolve) => {
-      new Dialog({
-        title,
-        content,
-        buttons: {
-          yes: {
-            label: options.yesLabel || 'Yes',
-            callback: () => resolve(true)
+    try {
+      logger.debug('🎵 YouTube DJ | UIHelper.confirmDialog called:', { title, content, options });
+      const { ConfirmationDialog } = await import('./ConfirmationDialog.js');
+      logger.debug('🎵 YouTube DJ | ConfirmationDialog imported successfully');
+      
+      const result = await ConfirmationDialog.show(title, content, {
+        yesLabel: options.yesLabel,
+        noLabel: options.noLabel,
+        defaultYes: options.defaultYes,
+        icon: options.icon,
+        type: options.type
+      });
+      
+      logger.debug('🎵 YouTube DJ | ConfirmationDialog result:', result);
+      return result;
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | UIHelper.confirmDialog error:', error);
+      // Fallback to old Dialog if our new one fails
+      return new Promise((resolve) => {
+        new Dialog({
+          title,
+          content,
+          buttons: {
+            yes: {
+              label: options.yesLabel || 'Yes',
+              callback: () => resolve(true)
+            },
+            no: {
+              label: options.noLabel || 'No',
+              callback: () => resolve(false)
+            }
           },
-          no: {
-            label: options.noLabel || 'No',
-            callback: () => resolve(false)
-          }
-        },
-        default: options.defaultYes ? 'yes' : 'no',
-        close: () => resolve(false)
-      }).render(true);
-    });
+          default: options.defaultYes ? 'yes' : 'no',
+          close: () => resolve(false)
+        }).render(true);
+      });
+    }
   }
 
   /**
