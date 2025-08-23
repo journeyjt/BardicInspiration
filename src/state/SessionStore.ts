@@ -100,18 +100,18 @@ export class SessionStore {
       // Clean up session members on startup to remove stale/duplicate entries
       this.cleanupSessionMembers();
 
-      // No auto-join - all users must explicitly join via widget
+      // Do NOT reset runtime session state (hasJoinedSession, isConnected, etc)
+      // These are runtime states that should persist during the session
+      // Only reset them on page reload/startup, not when loading persistent data
       const currentUserId = game.user?.id;
-      logger.debug('🎵 YouTube DJ | Session state loaded, requiring explicit join via widget:', {
+      
+      logger.debug('🎵 YouTube DJ | Session state loaded from world:', {
         currentUserId,
         djUserId: this.state.session.djUserId,
-        previouslyJoined: this.state.session.hasJoinedSession
+        memberCount: this.state.session.members.length,
+        // Note: hasJoinedSession is runtime state, not loaded from world
+        hasJoinedSession: this.state.session.hasJoinedSession
       });
-      
-      // Reset session state for all users - they must join via widget
-      this.state.session.hasJoinedSession = false;
-      this.state.session.isConnected = false;
-      this.state.session.connectionStatus = 'disconnected';
 
       logger.debug('🎵 YouTube DJ | State loaded successfully:', {
         djUserId: this.state.session.djUserId,
