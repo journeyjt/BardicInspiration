@@ -110,6 +110,42 @@ This module has been tested with:
 
 We welcome contributions! Please see our [Contributing Guide](CONTRIBUTING.md) for details.
 
+## Testing
+
+This module includes a comprehensive test suite using Vitest to ensure reliability and prevent regressions.
+
+### Running Tests
+
+```bash
+# Install test dependencies
+npm install
+
+# Run all tests once
+npm run test
+
+# Run tests in watch mode
+npm run test:watch
+
+# Generate coverage report
+npm run test:coverage
+```
+
+### Test Coverage
+
+The test suite includes:
+- **Unit Tests**: Individual service functionality (SessionStore, SessionManager, SocketManager)
+- **Integration Tests**: Multi-user scenarios and service interactions
+- **End-to-End Tests**: Complete user workflows and bug scenario reproductions
+
+Key scenarios tested:
+- Multi-user session management and synchronization
+- DJ role claiming, handoff, and release workflows
+- Session state recovery after disconnection
+- Heartbeat system and inactive user cleanup
+- "Ghost user" bug prevention and user reconnection flows
+
+See [tests/README.md](tests/README.md) for detailed testing documentation.
+
 ## License
 
 This module is licensed under the [MIT License](LICENSE).

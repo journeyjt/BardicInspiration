@@ -76,9 +76,24 @@
       {{/if}}
       {{/if}}
     </div>
+    <div class="queue-item-thumbnail">
+      {{#if thumbnailUrl}}
+      <img src="{{thumbnailUrl}}" alt="{{title}}" loading="lazy">
+      {{else}}
+      <div class="thumbnail-placeholder">
+        <i class="fab fa-youtube"></i>
+      </div>
+      {{/if}}
+    </div>
     <div class="queue-item-info">
       <span class="queue-item-title">{{#if title}}{{title}}{{else}}{{videoId}}{{/if}}</span>
-      <span class="queue-item-meta">Added by {{addedBy}}</span>
+      <div class="queue-item-meta">
+        {{#if authorName}}
+        <span class="channel-name">{{authorName}}</span>
+        <span class="meta-separator">•</span>
+        {{/if}}
+        <span class="added-by">Added by {{addedBy}}</span>
+      </div>
     </div>
     {{#if ../isDJ}}
     <div class="queue-item-controls">

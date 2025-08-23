@@ -1,6 +1,6 @@
 {
   "name": "bardic-inspiration",
-  "version": "0.9.4",
+  "version": "0.9.19",
   "description": "A Foundry VTT module",
   "type": "module",
   "scripts": {
@@ -10,11 +10,17 @@
     "vite:build": "vite build",
     "vite:preview": "vite preview",
     "validate": "node scripts/validate-module.cjs",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "test:ui": "vitest --ui",
     "dev:urls": "node -e \"const fs = require('fs'); const manifest = JSON.parse(fs.readFileSync('./module.json')); manifest.url = 'http://host.docker.internal:5000/modules/bardic-inspiration'; manifest.manifest = 'http://host.docker.internal:5000/modules/bardic-inspiration/module.json'; manifest.download = 'http://host.docker.internal:5000/modules/bardic-inspiration/module.zip'; fs.writeFileSync('./module.json', JSON.stringify(manifest, null, 2));\"",
     "prod:urls": "node -e \"const fs = require('fs'); const manifest = JSON.parse(fs.readFileSync('./module.json')); manifest.url = 'https://github.com/journeyjt/BardicInspiration'; manifest.manifest = 'https://github.com/journeyjt/BardicInspiration/releases/latest/download/module.json'; manifest.download = 'https://github.com/journeyjt/BardicInspiration/releases/latest/download/module.zip'; fs.writeFileSync('./module.json', JSON.stringify(manifest, null, 2));\"",
     "dev:serve": "npm run dev:urls && npm run dev:clean && npm run version:bump && npm run vite:build && npm run build:zip && npm run vite:dev",
-    "build": "npm run prod:urls && npm run validate && npm run version:bump && npm run vite:build && npm run build:zip",
-    "build:zip": "powershell -Command \"Compress-Archive -Path module.json,dist,templates,languages,LICENSE,README.md -DestinationPath module.zip -Force\""
+    "build": "npm run prod:urls && npm test && npm run validate && npm run version:bump && npm run vite:build && npm run build:zip",
+    "build:ci": "npm run prod:urls && npm run test:coverage && npm run validate && npm run vite:build && npm run build:zip",
+    "build:zip": "powershell -Command \"Compress-Archive -Path module.json,dist,templates,languages,LICENSE,README.md -DestinationPath module.zip -Force\"",
+    "precommit": "npm test && npm run validate"
   },
   "keywords": [
     "foundryvtt",
@@ -25,7 +31,10 @@
   "devDependencies": {
     "@league-of-foundry-developers/foundry-vtt-types": "^13.340.1",
     "@types/node": "^20.0.0",
+    "@vitest/coverage-v8": "^2.1.0",
+    "jsdom": "^25.0.0",
     "typescript": "^5.0.0",
-    "vite": "^7.1.2"
+    "vite": "^7.1.2",
+    "vitest": "^2.1.0"
   }
 }

@@ -1686,8 +1686,7 @@ export class YouTubePlayerWidget {
       // Reset player ready state when leaving
       this.isPlayerReady = false;
       
-      // Stop any heartbeat or synchronization
-      this.stopHeartbeat();
+      // Heartbeat management is handled by PlayerManager, not widget
       
       logger.info('🎵 YouTube DJ | Successfully left session from widget');
       ui.notifications?.info('Left YouTube DJ session');

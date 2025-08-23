@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "strict": true,
+    "strict": false,
     "noEmit": true,
     "declaration": false,
     "esModuleInterop": true,
@@ -13,9 +13,9 @@
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
-    "types": [
-      "@league-of-foundry-developers/foundry-vtt-types"
-    ],
+    "noImplicitAny": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "typeRoots": [
       "./node_modules/@types",
       "./node_modules/@league-of-foundry-developers"

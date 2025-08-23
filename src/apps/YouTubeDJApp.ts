@@ -92,7 +92,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       minimizable: true
     },
     position: {
-      width: 450,
+      width: 675,
       height: 'auto'
     }
   };

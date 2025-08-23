@@ -7,7 +7,7 @@
 
 // Inactive user detection configuration
 export const HEARTBEAT_ACTIVITY_CONFIG = {
-  MAX_MISSED_HEARTBEATS: 3, // Users who miss 3 consecutive heartbeats are removed
+  MAX_MISSED_HEARTBEATS: 5, // Users who miss 5 consecutive heartbeats are removed (10 seconds)
   HEARTBEAT_INTERVAL: 2000, // 2 seconds between heartbeats
   CLEANUP_ON_HEARTBEAT: true // Remove inactive users immediately when detected
 } as const;
@@ -33,6 +33,9 @@ export interface VideoInfo {
   title?: string;
   duration?: number;
   thumbnailUrl?: string;
+  authorName?: string;
+  authorUrl?: string;
+  publishedAt?: string;
 }
 
 export interface DJRequest {
