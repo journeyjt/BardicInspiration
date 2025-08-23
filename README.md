@@ -26,12 +26,6 @@ A synchronized YouTube music player module for FoundryVTT that lets Game Masters
 - Automatic loop - restarts from beginning when queue ends
 - Queue persists across sessions
 
-### Modern UI
-- Clean, modern blue-themed interface
-- Responsive design that works at any window size
-- Visual indicators for DJ status and current playing video
-- Intuitive controls with clear visual feedback
-
 ## Installation
 
 ### Method 1: Manifest URL (Recommended)
@@ -53,24 +47,93 @@ A synchronized YouTube music player module for FoundryVTT that lets Game Masters
 
 ## Usage
 
-1. **Enable the Module**: In your world settings, enable "Bardic Inspiration"
+### Getting Started
 
-2. **Open the YouTube DJ**: Click the music note icon in the scene controls toolbar
+1. **Enable the Module**
+   - Navigate to **Game Settings** → **Manage Modules**
+   - Find "Bardic Inspiration" and check the box to enable it
+   - Click **Save Module Settings**
+   - The YouTube player widget will automatically appear above the player list
 
-3. **Join the Session**: Click "Join Session" to connect to synchronized playback
+2. **Join the Music Session**
+   - Look for the widget above the player list on the left side of the screen
+   - Click the **"Join Session"** button (play icon) in the widget
+   - This connects you to synchronized playback with all other players
+   - The YouTube player will become visible once you've joined
 
-4. **Become the DJ**: 
-   - Click "Become DJ" to take control
-   - Only the DJ can control playback and manage the queue
+3. **Open DJ Controls**
+   - After joining the session, click the **"Open DJ Controls"** button (sliders icon) in the widget
+   - This opens the full DJ application window where you can manage the queue and control playback
+   - Only the DJ can control playback, but all users can view the queue
 
-5. **Add Videos**: 
-   - Paste YouTube URLs in the input field
-   - Click "Add to Queue" or press Enter
+### Becoming the DJ
 
-6. **Control Playback**: 
-   - Use play/pause/next buttons (DJ only)
-   - Adjust volume locally
-   - Mute/unmute as needed
+1. **Claim DJ Control**
+   - In the DJ Controls window, click **"Become DJ"** to take control
+   - Only one person can be DJ at a time
+   - The current DJ's name is displayed at the top of the DJ Controls window
+
+2. **DJ Indicators**
+   - The widget shows who is currently the DJ
+   - A crown icon appears next to the DJ's name in the session members list
+
+### DJ Controls (DJ Only)
+
+#### Managing the Queue
+- **Add Videos**: 
+  - Copy any YouTube video URL (e.g., `https://youtube.com/watch?v=...`)
+  - Paste it into the "Add YouTube URL" field
+  - Press **Enter** or click **"Add to Queue"**
+  - Videos are added to the bottom of the queue
+
+- **Reorder Queue**:
+  - Use the **↑** and **↓** arrow buttons to move songs up or down
+  - The currently playing video is highlighted in blue
+
+- **Remove Videos**:
+  - Click the **✕** button next to any video to remove it from the queue
+
+#### Playback Controls
+- **Play/Pause**: Toggle playback for all connected users
+- **Next**: Skip to the next video in the queue
+- **Previous**: Return to the previous video
+- **Seek**: Click anywhere on the progress bar to jump to that position
+- **Loop Queue**: When the queue ends, it automatically restarts from the beginning
+
+### Player Controls (All Users)
+
+- **Volume**: Adjust your own volume using the slider in the widget
+- **Mute/Unmute**: Toggle audio on/off locally without affecting others (speaker icon in widget)
+- **Leave Session**: Click the exit icon in the widget to disconnect from synchronized playback
+- **Request DJ**: In the DJ Controls window, click to notify the current DJ that you'd like control
+
+### DJ Management
+
+#### Handing Off DJ Role
+1. Current DJ clicks **"Release DJ"**
+2. Another player clicks **"Become DJ"** to claim control
+3. Alternatively, DJ can directly hand off to a specific player
+
+#### GM Override
+- Game Masters can always override and claim DJ control
+- GM can forcibly release DJ role from any player
+
+### Tips for Best Experience
+
+- **Stable Connection**: Ensure all players have a stable internet connection for synchronized playback
+- **Prepare Playlists**: Add multiple videos to the queue before starting for uninterrupted music
+- **Volume Balance**: Start with lower volume and adjust up to avoid startling players
+- **Session Persistence**: The queue and current playback position persist between sessions
+- **Late Joiners**: Players who join mid-session automatically sync to current playback
+
+### Troubleshooting
+
+- **Widget Not Visible**: Make sure the module is enabled and refresh the page
+- **Player Not Loading**: Ensure you've clicked "Join Session" in the widget first
+- **Videos Not Playing**: Check that YouTube isn't blocked by browser extensions or network filters
+- **Out of Sync**: The module automatically corrects drift, but you can leave and rejoin the session to force a resync
+- **No Sound**: Check the volume slider in the widget, ensure you're not muted, and verify system volume
+- **Can't Find DJ Controls**: After joining the session, click the sliders icon in the widget to open the DJ Controls window
 
 ## For Developers
 
@@ -89,7 +152,7 @@ npm run build  # Create production build and module.zip
 
 ## Requirements
 
-- FoundryVTT v12 or higher (tested with v13.347)
+- FoundryVTT v13 or higher
 - Modern web browser with YouTube iframe API support
 - Active internet connection for YouTube playback
 
@@ -98,7 +161,7 @@ npm run build  # Create production build and module.zip
 This module has been tested with:
 - FoundryVTT v13.347
 - Chrome, Firefox, Edge browsers
-- Windows, macOS, Linux operating systems
+- Windows, Linux operating systems
 
 ## Support
 
