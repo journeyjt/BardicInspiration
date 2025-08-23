@@ -841,10 +841,6 @@ export class SessionManager {
    * Handle member cleanup received from socket
    */
   private onMemberCleanupReceived(data: { removedMembers: string[]; activeMembers: any[] }): void {
-    // Don't process our own cleanup message
-    if (data.userId === game.user?.id) {
-      return;
-    }
     
     logger.debug('🎵 YouTube DJ | Processing member cleanup from another user:', data.removedMembers);
     

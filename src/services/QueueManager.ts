@@ -241,9 +241,101 @@ export class QueueManager {
   }
 
   /**
-   * Play next video in queue
+   * Play next video in queue (with auto-cycling)
    */
   async nextVideo(): Promise<VideoItem | null> {
+    if (!this.store.isDJ()) {
+      throw new Error('Only DJ can control queue playback');
+    }
+
+    const currentQueue = this.store.getQueueState();
+    
+    // If we have a currently playing item, move it to the end of the queue
+    if (currentQueue.currentIndex >= 0 && currentQueue.items[currentQueue.currentIndex]) {
+      const currentItem = currentQueue.items[currentQueue.currentIndex];
+      let newQueue = [...currentQueue.items];
+      
+      // Remove the current item from its position
+      newQueue.splice(currentQueue.currentIndex, 1);
+      
+      // Add it to the end of the queue
+      newQueue.push(currentItem);
+      
+      // After cycling, the next item moves into the current index position
+      // Unless we were at the end, in which case we go to 0
+      let newIndex = currentQueue.currentIndex;
+      if (newQueue.length === 0) {
+        newIndex = -1; // Queue is empty after removing the only item
+      } else if (newIndex >= newQueue.length) {
+        newIndex = 0; // Loop back to beginning if we were at the last item
+      }
+      
+      // Update the queue with the cycled item
+      this.store.updateState({
+        queue: {
+          ...currentQueue,
+          items: newQueue,
+          currentIndex: newIndex
+        }
+      });
+      
+      // Play the next item if there is one
+      if (newIndex >= 0 && newQueue.length > 0) {
+        const nextVideo = newQueue[newIndex];
+        this.playQueueItem(newIndex);
+        
+        // Broadcast queue advance with cycling
+        this.broadcastMessage({
+          type: 'QUEUE_NEXT',
+          userId: game.user?.id || '',
+          timestamp: Date.now(),
+          data: { 
+            nextIndex: newIndex, 
+            videoItem: nextVideo,
+            cycledItem: currentItem,
+            isCycling: true 
+          }
+        });
+        
+        logger.info('🎵 YouTube DJ | Advanced to next video, cycled previous to end:', nextVideo.title);
+        return nextVideo;
+      } else {
+        logger.debug('🎵 YouTube DJ | Queue is now empty');
+        return null;
+      }
+    } else {
+      // No current item, try to play the first item if available
+      if (currentQueue.items.length > 0) {
+        this.store.updateState({
+          queue: {
+            ...currentQueue,
+            currentIndex: 0
+          }
+        });
+        
+        const nextVideo = currentQueue.items[0];
+        this.playQueueItem(0);
+        
+        // Broadcast queue start
+        this.broadcastMessage({
+          type: 'QUEUE_NEXT',
+          userId: game.user?.id || '',
+          timestamp: Date.now(),
+          data: { nextIndex: 0, videoItem: nextVideo }
+        });
+        
+        return nextVideo;
+      } else {
+        logger.debug('🎵 YouTube DJ | Queue is empty');
+        return null;
+      }
+    }
+  }
+
+  /**
+   * Play next video (for manual skip without cycling)
+   */
+  async playNext(): Promise<VideoItem | null> {
     if (!this.store.isDJ()) {
       throw new Error('Only DJ can control queue playback');
     }

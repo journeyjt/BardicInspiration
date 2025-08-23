@@ -271,7 +271,7 @@ export class SessionStore {
               const significantMemberChanges = newMembers.some((newMember, index) => {
                 const oldMember = oldMembers[index];
                 return !oldMember || 
-                       oldMember.id !== newMember.id ||
+                       oldMember.userId !== newMember.userId ||
                        oldMember.name !== newMember.name ||
                        oldMember.isDJ !== newMember.isDJ;
               });

@@ -11,33 +11,24 @@ import { SocketManager } from './services/SocketManager.js';
 import { SessionManager } from './services/SessionManager.js';
 import { PlayerManager } from './services/PlayerManager.js';
 import { QueueManager } from './services/QueueManager.js';
+import { UIHelper } from './ui/UIHelper.js';
 import { logger } from './lib/logger.js';
 import './styles/main.css';
 
 const MODULE_ID = 'bardic-inspiration';
 
-interface ModuleAPI {
-  ID: string;
-  openYoutubeDJ(): void;
-  somePublicMethod(): void;
-}
-
 class BardicInspirationAPI implements ModuleAPI {
-  static readonly ID = MODULE_ID;
+  readonly ID = MODULE_ID;
 
-  static openYoutubeDJ(): void {
+  openYoutubeDJ(): void {
     YouTubeDJApp.open();
   }
 
-  static openYoutubeDJWidget(): void {
+  openYoutubeDJWidget(): void {
     YouTubePlayerWidget.getInstance().initialize();
   }
 
-  static somePublicMethod(): void {
-    logger.api('Public API method called');
-  }
-
-  static getLibWrapperUtils(): typeof LibWrapperUtils {
+  getLibWrapperUtils(): any {
     return LibWrapperUtils;
   }
 }
@@ -111,13 +102,8 @@ Hooks.once('init', () => {
   // Register module API globally
   const module = game.modules.get(MODULE_ID);
   if (module) {
-    (module as any).api = {
-      ID: BardicInspirationAPI.ID,
-      openYoutubeDJ: BardicInspirationAPI.openYoutubeDJ,
-      openYoutubeDJWidget: BardicInspirationAPI.openYoutubeDJWidget,
-      somePublicMethod: BardicInspirationAPI.somePublicMethod,
-      getLibWrapperUtils: BardicInspirationAPI.getLibWrapperUtils
-    };
+    const apiInstance = new BardicInspirationAPI();
+    (module as any).api = apiInstance;
   }
 
   // Example of using libWrapper (when available)

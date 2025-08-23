@@ -1,7 +1,7 @@
 # Bardic Inspiration
 
 ![FoundryVTT Version](https://img.shields.io/badge/FoundryVTT-v13-green)
-![Module Version](https://img.shields.io/badge/version-0.8.33-blue)
+![Module Version](https://img.shields.io/badge/version-1.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-yellow)
 
 A synchronized YouTube music player module for FoundryVTT that lets Game Masters and players share a musical experience during tabletop sessions. Features DJ controls, queue management, and real-time synchronization across all connected players.

@@ -28,7 +28,9 @@ export class QueueSectionComponent extends BaseComponent {
         'queue.items',
         'queue.currentIndex',
         'session.djUserId', // Need to know DJ status for controls
-        'player.isReady' // Need for enabling/disabling video input controls
+        'player.isReady', // Need for enabling/disabling video input controls
+        'player.playbackState', // Need for play/pause button state
+        'player.currentVideo' // Need for currently playing metadata
       ]
     };
 
@@ -45,14 +47,47 @@ export class QueueSectionComponent extends BaseComponent {
     const playerState = this.store.getPlayerState();
     const isDJ = this.store.isDJ();
 
-    return {
-      // Queue state - enhance items with current status
-      queue: queueState.items.map((item, index) => ({
+    // Separate currently playing from upcoming queue
+    let currentlyPlaying = null;
+    let upcomingQueue = [];
+    
+    if (queueState.currentIndex >= 0 && queueState.items[queueState.currentIndex]) {
+      // Get the currently playing item with additional metadata
+      const currentItem = queueState.items[queueState.currentIndex];
+      currentlyPlaying = {
+        ...currentItem,
+        // Add video metadata if available from player state
+        thumbnailUrl: playerState.currentVideo?.thumbnailUrl,
+        authorName: playerState.currentVideo?.authorName
+      };
+      
+      // Get all items after the current one for the upcoming queue
+      const startIndex = queueState.currentIndex + 1;
+      upcomingQueue = queueState.items.slice(startIndex).map((item, index) => ({
         ...item,
-        isCurrentItem: index === queueState.currentIndex
-      })),
-      currentQueueIndex: queueState.currentIndex,
+        actualIndex: startIndex + index // Add the actual index in the full queue
+      }));
+    } else {
+      // No currently playing item, all items are in upcoming queue
+      upcomingQueue = queueState.items.map((item, index) => ({
+        ...item,
+        actualIndex: index // Add the actual index in the full queue
+      }));
+    }
+
+    return {
+      // Currently playing item
+      currentlyPlaying,
+      
+      // Upcoming queue items
+      upcomingQueue,
+      
+      // Queue stats
+      queueCount: upcomingQueue.length,
       hasQueue: queueState.items.length > 0,
+      
+      // Playback state
+      isPlaying: playerState.playbackState === 'playing',
       
       // Control state
       isDJ,
@@ -90,6 +125,17 @@ export class QueueSectionComponent extends BaseComponent {
     else if (changes.session?.djUserId !== undefined) {
       logger.debug('🎵 YouTube DJ | QueueSectionComponent updating for DJ status change');
       this.renderDebounced();
+    }
+    
+    // Handle player state changes (affects play/pause button state)
+    else if (changes.player !== undefined) {
+      logger.debug('🎵 YouTube DJ | QueueSectionComponent updating for player state change');
+      this.renderDebounced();
+    }
+    
+    // For other subscribed state changes, use default behavior
+    else {
+      super.onStateChanged(event);
     }
   }
 
@@ -285,20 +331,121 @@ export class QueueSectionComponent extends BaseComponent {
    * Handle clear queue click
    */
   async onClearQueueClick(): Promise<void> {
-    const confirmed = await UIHelper.confirmDialog(
-      'Clear Queue',
-      'Are you sure you want to clear the entire queue?',
-      { defaultYes: false }
-    );
+    try {
+      logger.debug('🎵 YouTube DJ | Clear queue button clicked');
+      
+      const confirmed = await UIHelper.confirmDialog(
+        'Clear Queue',
+        'Are you sure you want to clear the entire queue?',
+        { 
+          defaultYes: false,
+          type: 'warning',
+          icon: 'fas fa-trash',
+          yesLabel: 'Clear Queue',
+          noLabel: 'Cancel'
+        }
+      );
 
-    if (!confirmed) return;
+      logger.debug('🎵 YouTube DJ | Clear queue confirmation result:', confirmed);
+
+      if (!confirmed) return;
+
+      try {
+        await this.queueManager.clearQueue();
+        ui.notifications?.success('Queue cleared');
+      } catch (error) {
+        logger.error('🎵 YouTube DJ | Failed to clear queue:', error);
+        ui.notifications?.error('Failed to clear queue');
+      }
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Error in onClearQueueClick:', error);
+      ui.notifications?.error('Failed to show confirmation dialog');
+    }
+  }
+
+  /**
+   * Handle skip button click (skip currently playing)
+   */
+  async onSkipClick(): Promise<void> {
+    if (!this.store.isDJ()) {
+      ui.notifications?.warn('Only the DJ can skip tracks');
+      return;
+    }
 
     try {
-      await this.queueManager.clearQueue();
-      ui.notifications?.success('Queue cleared');
+      await this.queueManager.nextVideo();
     } catch (error) {
-      logger.error('🎵 YouTube DJ | Failed to clear queue:', error);
-      ui.notifications?.error('Failed to clear queue');
+      logger.error('🎵 YouTube DJ | Failed to skip track:', error);
+      ui.notifications?.error('Failed to skip track');
+    }
+  }
+
+  /**
+   * Handle play button click
+   */
+  async onPlayClick(): Promise<void> {
+    if (!this.store.isDJ()) {
+      ui.notifications?.warn('Only the DJ can control playback');
+      return;
+    }
+
+    try {
+      await this.playerManager.play();
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to play:', error);
+      ui.notifications?.error('Failed to play');
+    }
+  }
+
+  /**
+   * Handle pause button click
+   */
+  async onPauseClick(): Promise<void> {
+    if (!this.store.isDJ()) {
+      ui.notifications?.warn('Only the DJ can control playback');
+      return;
+    }
+
+    try {
+      await this.playerManager.pause();
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to pause:', error);
+      ui.notifications?.error('Failed to pause');
+    }
+  }
+
+  /**
+   * Handle start queue button click
+   */
+  async onStartQueueClick(): Promise<void> {
+    if (!this.store.isDJ()) {
+      ui.notifications?.warn('Only the DJ can start queue playback');
+      return;
+    }
+
+    try {
+      const queueState = this.store.getQueueState();
+      
+      if (queueState.items.length === 0) {
+        ui.notifications?.warn('Queue is empty');
+        return;
+      }
+
+      // Start playback from the first item in the queue
+      if (queueState.currentIndex < 0 || queueState.currentIndex >= queueState.items.length) {
+        // Set current index to 0 if invalid
+        this.store.updateState({
+          queue: {
+            ...queueState,
+            currentIndex: 0
+          }
+        });
+      }
+
+      await this.playerManager.play();
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to start queue:', error);
+      ui.notifications?.error('Failed to start queue playback');
     }
   }
 
@@ -312,73 +459,7 @@ export class QueueSectionComponent extends BaseComponent {
     }
   }
 
-  /**
-   * Handle play next button click (add to queue at next position)
-   */
-  async onPlayNextClick(): Promise<void> {
-    const urlInput = this.componentElement?.querySelector('.video-url-input') as HTMLInputElement;
-    if (!urlInput) return;
-
-    const input = urlInput.value.trim();
-    if (!input) {
-      ui.notifications?.warn('Please enter a YouTube URL');
-      return;
-    }
-
-    try {
-      const videoId = UIHelper.extractVideoId(input);
-      if (!videoId) {
-        throw new Error('Invalid YouTube URL');
-      }
-
-      // Fetch video metadata
-      ui.notifications?.info('Fetching video information...');
-      const videoInfo = await this.playerManager.fetchVideoInfo(videoId);
-
-      // Add to queue with playNow flag
-      await this.queueManager.addVideo(videoInfo, true); // playNow = true
-
-      // Clear input
-      urlInput.value = '';
-      ui.notifications?.success('Video queued to play next');
-
-    } catch (error) {
-      logger.error('🎵 YouTube DJ | Failed to queue video for next play:', error);
-      ui.notifications?.error(`Failed to queue video: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
-
-  /**
-   * Handle load video button click (play now)
-   */
-  async onLoadVideoClick(): Promise<void> {
-    const urlInput = this.componentElement?.querySelector('.video-url-input') as HTMLInputElement;
-    if (!urlInput) return;
-
-    const input = urlInput.value.trim();
-    if (!input) {
-      ui.notifications?.warn('Please enter a YouTube URL');
-      return;
-    }
-
-    try {
-      const videoId = UIHelper.extractVideoId(input);
-      if (!videoId) {
-        throw new Error('Invalid YouTube URL');
-      }
-
-      // Load video immediately (no need to fetch metadata for direct play)
-      await this.playerManager.loadVideo(videoId);
-
-      // Clear input
-      urlInput.value = '';
-      ui.notifications?.success('Video loaded');
-
-    } catch (error) {
-      logger.error('🎵 YouTube DJ | Failed to load video:', error);
-      ui.notifications?.error(`Failed to load video: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-  }
+  // Removed onPlayNextClick and onLoadVideoClick methods - users can reorder queue instead
 
   /**
    * Update loading state for queue controls

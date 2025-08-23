@@ -167,23 +167,23 @@ describe('PlayerManager', () => {
       });
     });
 
-    it('should play video', async () => {
+    it('should play video when queue has items and correct video is loaded', async () => {
       const mockHooks = TestUtils.getMocks().Hooks;
       
-      // Set up a valid 11-character YouTube video ID to avoid "No video loaded" error
+      // Set up queue with a video and matching loaded video
       store.updateState({
         player: {
           isReady: true,
           currentVideo: { 
-            videoId: 'dQw4w9WgXcQ', // Valid 11-character YouTube ID
-            title: 'Test Video' 
+            videoId: 'queue-vid-1', 
+            title: 'Queue Video 1' 
           }
         },
         queue: {
           items: [{
             id: 'queue-item-1',
-            videoId: 'dQw4w9WgXcQ',
-            title: 'Test Video',
+            videoId: 'queue-vid-1',
+            title: 'Queue Video 1',
             addedBy: 'dj-user',
             addedAt: Date.now()
           }],
@@ -193,7 +193,161 @@ describe('PlayerManager', () => {
       
       await playerManager.play();
 
+      // Should play directly without loading
       expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.playerCommand', {
+        command: 'playVideo'
+      });
+      
+      // Should not call loadVideo since correct video is already loaded
+      expect(mockHooks.callAll).not.toHaveBeenCalledWith('youtubeDJ.playerCommand', 
+        expect.objectContaining({ command: 'loadVideoById' }));
+    });
+
+    it('should load correct video from queue when wrong video is loaded', async () => {
+      const mockHooks = TestUtils.getMocks().Hooks;
+      
+      // Set up queue with different video than what's loaded
+      store.updateState({
+        player: {
+          isReady: true,
+          currentVideo: { 
+            videoId: 'default-vid', // Different from queue
+            title: 'Default Video' 
+          }
+        },
+        queue: {
+          items: [{
+            id: 'queue-item-1',
+            videoId: 'queue-vid-1', // Different from loaded video
+            title: 'Queue Video 1',
+            addedBy: 'dj-user',
+            addedAt: Date.now()
+          }],
+          currentIndex: 0
+        }
+      });
+      
+      // Mock loadVideo method
+      const loadVideoSpy = vi.spyOn(playerManager, 'loadVideo').mockResolvedValue();
+      
+      await playerManager.play();
+
+      // Should call loadVideo with the queue video
+      expect(loadVideoSpy).toHaveBeenCalledWith('queue-vid-1');
+      
+      // Should not call playVideo directly since loadVideo handles it
+      expect(mockHooks.callAll).not.toHaveBeenCalledWith('youtubeDJ.playerCommand', {
+        command: 'playVideo'
+      });
+    });
+
+    it('should play loaded video when queue is empty', async () => {
+      const mockHooks = TestUtils.getMocks().Hooks;
+      
+      // Set up valid loaded video but empty queue
+      store.updateState({
+        player: {
+          isReady: true,
+          currentVideo: { 
+            videoId: 'default-vid', 
+            title: 'Default Video' 
+          }
+        },
+        queue: {
+          items: [], // Empty queue
+          currentIndex: -1
+        }
+      });
+      
+      await playerManager.play();
+
+      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.playerCommand', {
+        command: 'playVideo'
+      });
+    });
+
+    it('should throw error when no queue items and no valid video loaded', async () => {
+      // Set up empty queue and no loaded video
+      store.updateState({
+        player: {
+          isReady: true,
+          currentVideo: null // No video loaded
+        },
+        queue: {
+          items: [], // Empty queue
+          currentIndex: -1
+        }
+      });
+      
+      await expect(playerManager.play()).rejects.toThrow('No video loaded. Please add videos to the queue first.');
+    });
+
+    it('should handle invalid queue index gracefully', async () => {
+      const mockHooks = TestUtils.getMocks().Hooks;
+      
+      // Set up queue with invalid currentIndex
+      store.updateState({
+        player: {
+          isReady: true,
+          currentVideo: { 
+            videoId: 'default-vid', 
+            title: 'Default Video' 
+          }
+        },
+        queue: {
+          items: [{
+            id: 'queue-item-1',
+            videoId: 'queue-vid-1',
+            title: 'Queue Video 1',
+            addedBy: 'dj-user',
+            addedAt: Date.now()
+          }],
+          currentIndex: 5 // Invalid - out of bounds
+        }
+      });
+      
+      await playerManager.play();
+
+      // Should fall back to playing loaded video
+      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.playerCommand', {
+        command: 'playVideo'
+      });
+    });
+
+    it('should prioritize queue over default video (bug fix scenario)', async () => {
+      const mockHooks = TestUtils.getMocks().Hooks;
+      
+      // Simulate the bug scenario: default video loaded, user adds video to queue
+      store.updateState({
+        player: {
+          isReady: true,
+          currentVideo: { 
+            videoId: 'dQw4w9WgXcQ', // Default video (Rick Roll)
+            title: 'Never Gonna Give You Up' 
+          }
+        },
+        queue: {
+          items: [{
+            id: 'user-video',
+            videoId: 'user-vid-1', // User's video
+            title: 'User Video',
+            addedBy: 'dj-user',
+            addedAt: Date.now()
+          }],
+          currentIndex: 0
+        }
+      });
+      
+      // Mock loadVideo method
+      const loadVideoSpy = vi.spyOn(playerManager, 'loadVideo').mockResolvedValue();
+      
+      await playerManager.play();
+
+      // Should load the user's video from queue, NOT play the default video
+      expect(loadVideoSpy).toHaveBeenCalledWith('user-vid-1');
+      
+      // Should not play the default video
+      expect(mockHooks.callAll).not.toHaveBeenCalledWith('youtubeDJ.playerCommand', {
         command: 'playVideo'
       });
     });

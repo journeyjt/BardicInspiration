@@ -1,0 +1,22 @@
+{{! Confirmation Dialog Template }}
+<div class="bardic-confirmation-dialog">
+  <div class="dialog-content">
+    <div class="dialog-icon {{type}}">
+      <i class="{{icon}}"></i>
+    </div>
+    <div class="dialog-message">
+      {{{content}}}
+    </div>
+  </div>
+  
+  <div class="dialog-actions">
+    <button type="button" class="control-btn danger-btn" data-action="cancel">
+      <i class="fas fa-times"></i>
+      <span>{{noLabel}}</span>
+    </button>
+    <button type="button" class="control-btn primary-btn" data-action="confirm">
+      <i class="fas fa-check"></i>
+      <span>{{yesLabel}}</span>
+    </button>
+  </div>
+</div>

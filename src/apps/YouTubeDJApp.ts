@@ -14,14 +14,12 @@ import { SocketManager } from '../services/SocketManager.js';
 // UI Components
 import { SessionControlsComponent } from '../ui/components/SessionControlsComponent.js';
 import { QueueSectionComponent } from '../ui/components/QueueSectionComponent.js';
-import { PlayerControlsComponent } from '../ui/components/PlayerControlsComponent.js';
+// PlayerControlsComponent now integrated into QueueSectionComponent
 import { UIHelper } from '../ui/UIHelper.js';
 
 interface YouTubeDJData {
   // Only main template context data needed - components handle their own data
   hasJoinedSession: boolean;
-  sessionMembers: Array<{userId: string, name: string, isDJ: boolean, isActive: boolean, lastActivity: number}>;
-  queueLength: number;
   isDJ: boolean;
 }
 
@@ -39,7 +37,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
   // UI Components
   private sessionControlsComponent!: SessionControlsComponent;
   private queueSectionComponent!: QueueSectionComponent;
-  private playerControlsComponent!: PlayerControlsComponent;
+  // PlayerControlsComponent integrated into QueueSectionComponent
   
   // Event cleanup tracking - separated by type
   private stateListenerCleanup: (() => void)[] = [];
@@ -109,22 +107,17 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
    */
   async _prepareContext(): Promise<YouTubeDJData> {
     const sessionState = this.store.getSessionState();
-    const queueState = this.store.getQueueState();
     const isDJ = this.store.isDJ();
 
     const context = {
       // Main template only needs structural information
       hasJoinedSession: sessionState.hasJoinedSession,
-      sessionMembers: sessionState.members,
-      queueLength: queueState.items.length,
       isDJ
     };
     
     logger.debug('🎵 YouTube DJ | Main template context:', {
       hasJoinedSession: context.hasJoinedSession,
-      isDJ: context.isDJ,
-      sessionMembers: context.sessionMembers.length,
-      queueLength: context.queueLength
+      isDJ: context.isDJ
     });
     
     return context;
@@ -176,13 +169,12 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       // Initialize UI components with their specific containers
       this.sessionControlsComponent = new SessionControlsComponent(this.store, contentElement, this.sessionManager);
       this.queueSectionComponent = new QueueSectionComponent(this.store, contentElement, this.queueManager, this.playerManager);
-      this.playerControlsComponent = new PlayerControlsComponent(this.store, contentElement, this.playerManager, this.queueManager);
+      // PlayerControls integrated into QueueSectionComponent
 
       // Initialize all components
       await Promise.all([
         this.sessionControlsComponent.initialize(),
-        this.queueSectionComponent.initialize(),
-        this.playerControlsComponent.initialize()
+        this.queueSectionComponent.initialize()
       ]);
 
       logger.debug('🎵 YouTube DJ | UI components initialized');
@@ -221,18 +213,16 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     this.addEventDelegation('.skip-to-btn', 'click', (e) => this.queueSectionComponent.onSkipToClick(e));
     this.addEventDelegation('.clear-queue-btn', 'click', () => this.queueSectionComponent.onClearQueueClick());
     this.addEventDelegation('.youtube-url-input', 'keypress', (e) => this.queueSectionComponent.onUrlInputKeypress(e as KeyboardEvent));
+    
+    // Integrated playbook controls in queue section
+    this.addEventDelegation('.play-btn', 'click', () => this.queueSectionComponent.onPlayClick());
+    this.addEventDelegation('.pause-btn', 'click', () => this.queueSectionComponent.onPauseClick());
+    this.addEventDelegation('.skip-btn', 'click', () => this.queueSectionComponent.onSkipClick());
+    this.addEventDelegation('.start-queue-btn', 'click', () => this.queueSectionComponent.onStartQueueClick());
 
-    // Player controls event delegation
-    this.addEventDelegation('.play-btn', 'click', () => this.playerControlsComponent.onPlayClick());
-    this.addEventDelegation('.pause-btn', 'click', () => this.playerControlsComponent.onPauseClick());
-    this.addEventDelegation('.next-btn', 'click', () => this.playerControlsComponent.onNextTrackClick());
-    this.addEventDelegation('.prev-btn', 'click', () => this.playerControlsComponent.onPreviousTrackClick());
-    this.addEventDelegation('.play-next-btn', 'click', () => this.queueSectionComponent.onPlayNextClick());
-    this.addEventDelegation('.load-video-btn', 'click', () => this.queueSectionComponent.onLoadVideoClick());
+    // Removed: play-next-btn and load-video-btn - users can use queue reordering instead
 
-    // Seek bar controls (handled by SeekBarComponent)
-    this.addEventDelegation('.seek-bar', 'input', (e) => this.playerControlsComponent.seekBarComponent?.onSeekBarInput(e));
-    this.addEventDelegation('.seek-bar', 'change', (e) => this.playerControlsComponent.seekBarComponent?.onSeekBarChange(e));
+    // Seek bar controls removed (seeking now handled by widget)
 
     // Widget volume control
     this.addEventDelegation('.volume-slider', 'input', (e) => (window as any).youtubeDJWidget?.onVolumeChange(e));
@@ -261,7 +251,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
       const matchedElement = target.closest(selector);
       
       // Debug logging for queue buttons
-      if (selector.includes('move-') || selector.includes('remove-queue')) {
+      if (selector.includes('move-') || selector.includes('remove-queue') || selector.includes('clear-queue')) {
         logger.debug('🎵 YouTube DJ | Event delegation check', {
           selector,
           targetTag: target.tagName,
@@ -403,10 +393,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
         this.queueSectionComponent.destroy();
         this.queueSectionComponent = null as any;
       }
-      if (this.playerControlsComponent) {
-        this.playerControlsComponent.destroy();
-        this.playerControlsComponent = null as any;
-      }
+      // PlayerControls integrated into QueueSectionComponent
       
       // Initialize UI components (will check for hasJoinedSession internally)
       await this.initializeUIComponents();
@@ -489,9 +476,7 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     if (this.queueSectionComponent) {
       this.queueSectionComponent.destroy();
     }
-    if (this.playerControlsComponent) {
-      this.playerControlsComponent.destroy();
-    }
+    // PlayerControls integrated into QueueSectionComponent
     
     // Note: Don't destroy global services - they persist across app instances
     

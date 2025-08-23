@@ -127,6 +127,103 @@ const mockHooks = {
   registerHelper: vi.fn(),
 };
 
+// Mock FoundryVTT's foundry global namespace
+(global as any).foundry = {
+  applications: {
+    api: {
+      ApplicationV2: class MockApplicationV2 {
+        static DEFAULT_OPTIONS = {
+          window: { title: '', icon: '' },
+          position: {},
+          actions: {},
+          form: {}
+        };
+        options: any = {
+          window: { title: '', icon: '' },
+          position: {},
+          actions: {},
+          form: {}
+        };
+        element: HTMLElement;
+        
+        constructor() {
+          this.element = document.createElement('div');
+          this.element.className = 'application';
+        }
+        
+        async render(force?: boolean): Promise<this> {
+          // Simulate template rendering
+          if (this.template && (global as any).renderTemplate.getMockImplementation()) {
+            const context = await this._prepareContext();
+            const html = await (global as any).renderTemplate(this.template, context);
+            this.element.innerHTML = html;
+            document.body.appendChild(this.element);
+            
+            // Call _onRender if it exists
+            if (this._onRender) {
+              this._onRender(context, {});
+            }
+          }
+          return this;
+        }
+        
+        async close(): Promise<this> {
+          if (this.element.parentNode) {
+            this.element.parentNode.removeChild(this.element);
+          }
+          return this;
+        }
+        
+        get template(): string {
+          return '';
+        }
+        
+        async _prepareContext(): Promise<any> {
+          return {};
+        }
+        
+        _onRender(context: any, options: any): void {}
+      },
+      HandlebarsApplicationMixin: (BaseClass: any) => {
+        return class extends BaseClass {
+          static DEFAULT_OPTIONS = {
+            ...BaseClass.DEFAULT_OPTIONS,
+            window: { 
+              title: '', 
+              icon: '',
+              ...(BaseClass.DEFAULT_OPTIONS?.window || {})
+            }
+          };
+          
+          constructor(...args: any[]) {
+            super(...args);
+            // Ensure options are properly initialized
+            this.options = {
+              ...this.options,
+              window: {
+                title: '',
+                icon: '',
+                ...this.options?.window
+              }
+            };
+          }
+          
+          get template(): string {
+            return '';
+          }
+          
+          async _prepareContext(): Promise<any> {
+            return {};
+          }
+        };
+      }
+    }
+  }
+};
+
+// Mock renderTemplate function
+(global as any).renderTemplate = vi.fn();
+
 // YouTube Player API mock
 (global as any).YT = {
   Player: vi.fn().mockImplementation(() => ({
@@ -203,6 +300,9 @@ export const TestUtils = {
     socket: mockSocket,
     settings: mockSettingsManager,
     notifications: mockNotifications,
+    ui: {
+      notifications: mockNotifications,
+    },
     Hooks: mockHooks,
   }),
 
@@ -259,6 +359,17 @@ export const TestUtils = {
 
   // Wait for async operations
   waitFor: (ms: number = 0) => new Promise(resolve => setTimeout(resolve, ms)),
+
+  // Setup DOM environment
+  setupDOM: () => {
+    // Clear any existing DOM content
+    document.body.innerHTML = '';
+    
+    // Add a basic container for applications
+    const container = document.createElement('div');
+    container.id = 'foundry-container';
+    document.body.appendChild(container);
+  },
 };
 
 export default TestUtils;

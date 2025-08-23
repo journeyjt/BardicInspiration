@@ -49,29 +49,46 @@ export class PlayerManager {
       throw new Error('Only DJ can control playback');
     }
     
-    // Check if there's a valid video to play
-    const playerState = this.store.getPlayerState();
-    const hasValidVideo = playerState.currentVideo?.videoId && 
-                          playerState.currentVideo.videoId.length === 11;
+    // PRIORITY 1: Check if there are queued videos to play
+    const queueState = this.store.getQueueState();
+    const hasQueuedVideo = queueState.items.length > 0 && 
+                          queueState.currentIndex >= 0 && 
+                          queueState.currentIndex < queueState.items.length;
     
-    if (!hasValidVideo) {
-      // No video loaded - try to play from queue if available
-      const queueState = this.store.getQueueState();
-      if (queueState.items.length > 0 && queueState.currentIndex >= 0) {
-        const currentItem = queueState.items[queueState.currentIndex];
-        if (currentItem?.videoId) {
-          logger.debug('🎵 YouTube DJ | Loading video from queue:', currentItem.title);
-          await this.loadVideo(currentItem.videoId);
-          return; // loadVideo will handle playing
-        }
+    if (hasQueuedVideo) {
+      const currentQueueItem = queueState.items[queueState.currentIndex];
+      const playerState = this.store.getPlayerState();
+      
+      logger.debug('🎵 YouTube DJ | Queue has videos, checking if correct video is loaded:', {
+        queueVideoId: currentQueueItem.videoId,
+        playerVideoId: playerState.currentVideo?.videoId,
+        queueTitle: currentQueueItem.title
+      });
+      
+      // Check if the player has the correct video loaded
+      if (playerState.currentVideo?.videoId !== currentQueueItem.videoId) {
+        logger.debug('🎵 YouTube DJ | Loading correct video from queue:', currentQueueItem.title);
+        await this.loadVideo(currentQueueItem.videoId);
+        return; // loadVideo will handle playing
       }
-      throw new Error('No video loaded. Please add videos to the queue first.');
+      
+      // Correct video is already loaded, proceed to play it
+      logger.debug('🎵 YouTube DJ | Playing current queue video:', currentQueueItem.title);
+    } else {
+      // PRIORITY 2: No queue items - check if there's a fallback video loaded
+      const playerState = this.store.getPlayerState();
+      const hasValidVideo = playerState.currentVideo?.videoId && 
+                            playerState.currentVideo.videoId.length === 11;
+      
+      if (!hasValidVideo) {
+        throw new Error('No video loaded. Please add videos to the queue first.');
+      }
+      
+      logger.debug('🎵 YouTube DJ | No queue items, playing loaded video:', {
+        videoId: playerState.currentVideo.videoId,
+        title: playerState.currentVideo.title
+      });
     }
-
-    logger.debug('🎵 YouTube DJ | Playing video...', { 
-      videoId: playerState.currentVideo.videoId,
-      title: playerState.currentVideo.title 
-    });
 
     try {
       // Send command to widget player
