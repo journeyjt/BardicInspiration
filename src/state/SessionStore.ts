@@ -60,6 +60,13 @@ export class SessionStore {
     try {
       logger.debug('🎵 YouTube DJ | Loading state from world settings');
 
+      // Preserve current runtime session state before loading
+      const currentRuntimeState = {
+        hasJoinedSession: this.state.session.hasJoinedSession,
+        isConnected: this.state.session.isConnected,
+        connectionStatus: this.state.session.connectionStatus
+      };
+
       // Load legacy settings first for backward compatibility
       const currentDJ = game.settings.get('core', SessionStore.WORLD_SETTINGS.CURRENT_DJ) as string | null;
       const sessionMembers = game.settings.get('core', SessionStore.WORLD_SETTINGS.SESSION_MEMBERS) as any[] || [];
@@ -97,20 +104,43 @@ export class SessionStore {
         };
       }
 
+      // Restore runtime session state after loading persistent state
+      this.state.session.hasJoinedSession = currentRuntimeState.hasJoinedSession;
+      this.state.session.isConnected = currentRuntimeState.isConnected;
+      this.state.session.connectionStatus = currentRuntimeState.connectionStatus;
+
       // Clean up session members on startup to remove stale/duplicate entries
       this.cleanupSessionMembers();
 
-      // Do NOT reset runtime session state (hasJoinedSession, isConnected, etc)
-      // These are runtime states that should persist during the session
-      // Only reset them on page reload/startup, not when loading persistent data
+      // Check if current user is still in the persistent member list
+      // If they were removed (e.g., by heartbeat cleanup), reset their runtime session state
       const currentUserId = game.user?.id;
+      let shouldResetSessionState = false;
+      
+      if (currentUserId) {
+        const userStillInSession = this.state.session.members.some(m => m.userId === currentUserId);
+        
+        if (!userStillInSession && this.state.session.hasJoinedSession) {
+          logger.warn('🎵 YouTube DJ | Current user was removed from persistent session members - resetting runtime session state');
+          shouldResetSessionState = true;
+        }
+      }
+      
+      // Reset runtime session state if user is no longer in persistent member list
+      if (shouldResetSessionState) {
+        this.state.session.hasJoinedSession = false;
+        this.state.session.isConnected = false;
+        this.state.session.connectionStatus = 'disconnected';
+        logger.info('🎵 YouTube DJ | Reset session state - user must rejoin session');
+      }
       
       logger.debug('🎵 YouTube DJ | Session state loaded from world:', {
         currentUserId,
         djUserId: this.state.session.djUserId,
         memberCount: this.state.session.members.length,
-        // Note: hasJoinedSession is runtime state, not loaded from world
-        hasJoinedSession: this.state.session.hasJoinedSession
+        userInMemberList: currentUserId ? this.state.session.members.some(m => m.userId === currentUserId) : false,
+        hasJoinedSession: this.state.session.hasJoinedSession,
+        resetSessionState: shouldResetSessionState
       });
 
       logger.debug('🎵 YouTube DJ | State loaded successfully:', {

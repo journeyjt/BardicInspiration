@@ -296,7 +296,7 @@ export class PlayerManager {
       this.sendHeartbeat();
     }, this.store.getPlayerState().heartbeatFrequency);
 
-    logger.debug('🎵 YouTube DJ | Heartbeat started');
+    logger.debug('🎵 YouTube DJ | Heartbeat started for session activity tracking');
   }
 
   /**
@@ -338,35 +338,38 @@ export class PlayerManager {
    * Send heartbeat to other players
    */
   private async sendHeartbeat(): Promise<void> {
-    if (!this.store.getPlayerState().isReady || !this.store.isDJ()) {
+    if (!this.store.isDJ()) {
       return;
     }
 
+    // Continue heartbeats even when player is not ready for session activity tracking
     try {
       const playerState = this.store.getPlayerState();
       const currentVideo = playerState.currentVideo;
       const isPlaying = playerState.playbackState === 'playing';
 
-      // Request current time from widget player
+      // Request current time from widget player (only if player is ready)
       let currentTime = playerState.currentTime || 0;
-      try {
-        // Emit request for current time and wait for response
-        const timeRequest = new Promise<number>((resolve) => {
-          const timeout = setTimeout(() => resolve(currentTime), 100); // 100ms timeout, fallback to stored time
+      if (playerState.isReady) {
+        try {
+          // Emit request for current time and wait for response
+          const timeRequest = new Promise<number>((resolve) => {
+            const timeout = setTimeout(() => resolve(currentTime), 100); // 100ms timeout, fallback to stored time
+            
+            const timeHandler = (data: { currentTime: number }) => {
+              clearTimeout(timeout);
+              Hooks.off('youtubeDJ.currentTimeResponse', timeHandler);
+              resolve(data.currentTime);
+            };
+            
+            Hooks.on('youtubeDJ.currentTimeResponse', timeHandler);
+            Hooks.callAll('youtubeDJ.getCurrentTimeRequest');
+          });
           
-          const timeHandler = (data: { currentTime: number }) => {
-            clearTimeout(timeout);
-            Hooks.off('youtubeDJ.currentTimeResponse', timeHandler);
-            resolve(data.currentTime);
-          };
-          
-          Hooks.on('youtubeDJ.currentTimeResponse', timeHandler);
-          Hooks.callAll('youtubeDJ.getCurrentTimeRequest');
-        });
-        
-        currentTime = await timeRequest;
-      } catch (error) {
-        logger.debug('🎵 YouTube DJ | Failed to get current time from widget, using stored time:', currentTime);
+          currentTime = await timeRequest;
+        } catch (error) {
+          logger.debug('🎵 YouTube DJ | Failed to get current time from widget, using stored time:', currentTime);
+        }
       }
 
       const heartbeat: HeartbeatData = {
@@ -444,19 +447,34 @@ export class PlayerManager {
       
       const data = await response.json();
       
+      // Log the full oEmbed response to understand available data
+      logger.debug('🎵 YouTube DJ | oEmbed response:', data);
+      
       return {
         videoId,
         title: data.title || `Video ${videoId}`,
         duration: 0, // oEmbed doesn't provide duration, would need YouTube Data API for that
-        thumbnailUrl: data.thumbnail_url
+        thumbnailUrl: data.thumbnail_url,
+        authorName: data.author_name,
+        authorUrl: data.author_url
       };
     } catch (error) {
       logger.warn('🎵 YouTube DJ | Failed to fetch video metadata, using fallback:', error);
       
+      // Provide more specific error messages for better user experience
+      let fallbackTitle = `Video ${videoId}`;
+      if (error instanceof Error) {
+        if (error.message.includes('404')) {
+          fallbackTitle = `Video not found (${videoId})`;
+        } else if (error.message.includes('403')) {
+          fallbackTitle = `Private video (${videoId})`;
+        }
+      }
+      
       // Fallback to basic info if API call fails
       return {
         videoId,
-        title: `Video ${videoId}`,
+        title: fallbackTitle,
         duration: 0
       };
     }
@@ -724,12 +742,12 @@ export class PlayerManager {
     const currentUserId = game.user?.id;
 
     if (currentDJ === currentUserId && previousDJ !== currentUserId) {
-      // User became DJ - start heartbeat if playing
-      if (this.store.getPlayerState().playbackState === 'playing') {
-        this.startHeartbeat();
-      }
+      // User became DJ - start heartbeat immediately for session activity tracking
+      logger.debug('🎵 YouTube DJ | User became DJ, starting heartbeat for activity tracking');
+      this.startHeartbeat();
     } else if (previousDJ === currentUserId && currentDJ !== currentUserId) {
       // User lost DJ role - stop heartbeat
+      logger.debug('🎵 YouTube DJ | User lost DJ role, stopping heartbeat');
       this.stopHeartbeat();
     }
   }

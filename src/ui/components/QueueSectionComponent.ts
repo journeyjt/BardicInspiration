@@ -162,13 +162,14 @@ export class QueueSectionComponent extends BaseComponent {
         throw new Error('Invalid YouTube URL');
       }
 
-      // Add to queue via QueueManager
-      await this.queueManager.addVideo({
-        videoId,
-        url: input,
-        title: `Video ${videoId}`, // Will be updated when loaded
-        duration: 0
-      });
+      // Fetch video metadata before adding to queue
+      ui.notifications?.info('Fetching video information...');
+      const videoInfo = await this.playerManager.fetchVideoInfo(videoId);
+      
+      logger.debug('🎵 YouTube DJ | Video metadata fetched:', videoInfo);
+
+      // Add to queue via QueueManager with proper metadata
+      await this.queueManager.addVideo(videoInfo);
 
       // Clear input
       urlInput.value = '';

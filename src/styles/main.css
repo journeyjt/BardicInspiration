@@ -971,6 +971,24 @@
 .queue-item-meta {
   font-size: 0.8125rem;
   color: var(--bardic-inspiration-text-muted);
+  display: flex;
+  align-items: center;
+  gap: var(--bardic-inspiration-space-xs);
+  flex-wrap: wrap;
+}
+
+.queue-item-meta .channel-name {
+  color: var(--bardic-inspiration-text-secondary);
+  font-weight: 500;
+}
+
+.queue-item-meta .meta-separator {
+  color: var(--bardic-inspiration-text-muted);
+  font-weight: normal;
+}
+
+.queue-item-meta .added-by {
+  color: var(--bardic-inspiration-text-muted);
 }
 
 /* Queue Position and Status Indicators */
@@ -1909,6 +1927,73 @@
   100% {
     background-position: -100% 50%;
   }
+}
+
+.thumbnail-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bardic-inspiration-bg-elevated);
+  color: var(--bardic-inspiration-text-muted);
+}
+
+.thumbnail-placeholder i {
+  font-size: 14px;
+}
+
+/* Handoff Dialog Styles */
+.bardic-inspiration-dialog.handoff-dialog {
+  padding: 1.5rem;
+}
+
+.bardic-inspiration-dialog .form-group {
+  margin-bottom: 1rem;
+}
+
+.bardic-inspiration-dialog label {
+  display: block;
+  margin-bottom: 0.5rem;
+  color: var(--bardic-inspiration-text, #f8fafc);
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.bardic-inspiration-dialog select {
+  width: 100%;
+  padding: 0.625rem;
+  background: var(--bardic-inspiration-bg-card, #1e293b);
+  color: var(--bardic-inspiration-text, #f8fafc);
+  border: 1px solid var(--bardic-inspiration-border, #475569);
+  border-radius: var(--bardic-inspiration-radius, 0.5rem);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.bardic-inspiration-dialog select:hover {
+  border-color: var(--bardic-inspiration-primary, #2563eb);
+  background: var(--bardic-inspiration-bg-elevated, #334155);
+}
+
+.bardic-inspiration-dialog select:focus {
+  outline: none;
+  border-color: var(--bardic-inspiration-primary, #2563eb);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.bardic-inspiration-dialog select option {
+  background: var(--bardic-inspiration-bg-card, #1e293b);
+  color: var(--bardic-inspiration-text, #f8fafc);
+  padding: 0.5rem;
+}
+
+.bardic-inspiration-dialog .hint-text {
+  margin-top: 0.5rem;
+  color: var(--bardic-inspiration-text-muted, #94a3b8);
+  font-size: 0.875rem;
+  font-style: italic;
 }
 
 /* Enhanced notification styles */

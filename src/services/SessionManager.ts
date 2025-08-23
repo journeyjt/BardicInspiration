@@ -324,24 +324,43 @@ export class SessionManager {
     const currentMembers = this.store.getSessionState().members;
     const existingIndex = currentMembers.findIndex(m => m.userId === member.userId);
 
+    logger.debug('🎵 YouTube DJ | addSessionMember called:', {
+      memberName: member.name,
+      memberId: member.userId,
+      existingIndex,
+      currentMemberCount: currentMembers.length,
+      currentMembers: currentMembers.map(m => ({ id: m.userId, name: m.name }))
+    });
+
     let updatedMembers: SessionMember[];
     if (existingIndex >= 0) {
       // Update existing member
       updatedMembers = [...currentMembers];
       updatedMembers[existingIndex] = { ...member };
+      logger.debug('🎵 YouTube DJ | Updated existing member at index:', existingIndex);
     } else {
       // Add new member
       updatedMembers = [...currentMembers, { ...member }];
+      logger.debug('🎵 YouTube DJ | Added new member, total count will be:', updatedMembers.length);
     }
 
+    const sessionStateBefore = this.store.getSessionState();
+    
     this.store.updateState({
       session: {
-        ...this.store.getSessionState(),
+        ...sessionStateBefore,
         members: updatedMembers
       }
     });
 
-    logger.debug('🎵 YouTube DJ | Session member added/updated:', member.name);
+    const sessionStateAfter = this.store.getSessionState();
+    
+    logger.debug('🎵 YouTube DJ | Session member added/updated - state update result:', {
+      memberName: member.name,
+      membersBefore: sessionStateBefore.members.length,
+      membersAfter: sessionStateAfter.members.length,
+      finalMembers: sessionStateAfter.members.map(m => ({ id: m.userId, name: m.name }))
+    });
   }
 
   /**
@@ -427,9 +446,13 @@ export class SessionManager {
         // User didn't respond - increment missed heartbeats
         const newMissedCount = member.missedHeartbeats + 1;
         
-        if (newMissedCount >= HEARTBEAT_ACTIVITY_CONFIG.MAX_MISSED_HEARTBEATS) {
-          // Remove user who missed 3 consecutive heartbeats
-          logger.info(`🎵 YouTube DJ | Removing inactive user: ${member.name} (${newMissedCount} missed heartbeats)`);
+        // Give newly joined users a grace period (30 seconds)
+        const memberAge = Date.now() - (member.lastActivity || 0);
+        const isNewMember = memberAge < 30000; // 30 seconds grace period
+        
+        if (newMissedCount >= HEARTBEAT_ACTIVITY_CONFIG.MAX_MISSED_HEARTBEATS && !isNewMember) {
+          // Remove user who missed consecutive heartbeats (but not new users)
+          logger.info(`🎵 YouTube DJ | Removing inactive user: ${member.name} (${newMissedCount} missed heartbeats) - likely browser closed`);
           removedMembers.push(member.userId);
           membersChanged = true;
           
@@ -451,6 +474,10 @@ export class SessionManager {
             membersChanged = true;
             member.missedHeartbeats = newMissedCount;
             member.isActive = true; // Still active until they hit the limit
+            
+            if (isNewMember) {
+              logger.debug(`🎵 YouTube DJ | New member ${member.name} missed heartbeat ${newMissedCount} but still in grace period`);
+            }
           }
           return true; // Keep this member
         }
@@ -581,15 +608,27 @@ export class SessionManager {
    * Handle user joined event from socket
    */
   private onUserJoined(data: { userId: string; userName: string }): void {
+    logger.debug('🎵 YouTube DJ | onUserJoined hook received:', {
+      userId: data.userId,
+      userName: data.userName,
+      currentUser: game.user?.id,
+      isOwnMessage: data.userId === game.user?.id,
+      currentMemberCount: this.store.getSessionState().members.length,
+      currentMembers: this.store.getSessionState().members.map(m => ({ id: m.userId, name: m.name }))
+    });
+    
     // Don't process our own join message
     if (data.userId === game.user?.id) {
+      logger.debug('🎵 YouTube DJ | Ignoring own USER_JOIN message');
       return;
     }
     
-    logger.debug('🎵 YouTube DJ | Processing user join:', data.userName);
+    logger.debug('🎵 YouTube DJ | Processing user join for:', data.userName);
     
     // Clean up inactive members when someone new joins
     this.cleanupInactiveMembers();
+    
+    const membersBefore = this.store.getSessionState().members.length;
     
     // Add the user to our session members
     this.addSessionMember({
@@ -598,6 +637,15 @@ export class SessionManager {
       isDJ: data.userId === this.store.getSessionState().djUserId,
       isActive: true,
       missedHeartbeats: 0
+    });
+    
+    const membersAfter = this.store.getSessionState().members.length;
+    
+    logger.debug('🎵 YouTube DJ | After adding user - member count changed:', {
+      before: membersBefore,
+      after: membersAfter,
+      addedUser: data.userName,
+      allMembers: this.store.getSessionState().members.map(m => ({ id: m.userId, name: m.name }))
     });
   }
 

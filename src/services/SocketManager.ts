@@ -329,10 +329,27 @@ class StateResponseHandler implements MessageHandler {
       const updates: any = {};
 
       if (message.data.session) {
-        updates.session = {
-          ...this.store.getSessionState(),
-          ...message.data.session
+        const currentSession = this.store.getSessionState();
+        const receivedSession = message.data.session;
+        
+        // Preserve local runtime session states - these should NEVER be overwritten by other users
+        const protectedFields = {
+          hasJoinedSession: currentSession.hasJoinedSession,
+          isConnected: currentSession.isConnected, 
+          connectionStatus: currentSession.connectionStatus
         };
+        
+        updates.session = {
+          ...currentSession,
+          ...receivedSession,
+          ...protectedFields  // Always keep local runtime states
+        };
+        
+        logger.debug('🎵 YouTube DJ | STATE_RESPONSE session merge:', {
+          receivedHasJoined: receivedSession.hasJoinedSession,
+          localHasJoined: currentSession.hasJoinedSession,
+          finalHasJoined: updates.session.hasJoinedSession
+        });
       }
 
       if (message.data.queue) {
@@ -375,13 +392,24 @@ class UserJoinHandler implements MessageHandler {
   constructor(private store: SessionStore) {}
 
   handle(message: YouTubeDJMessage): void {
-    logger.debug('🎵 YouTube DJ | User joined session:', message.data?.userName);
+    const currentMemberCount = this.store.getSessionState().members.length;
+    
+    logger.debug('🎵 YouTube DJ | USER_JOIN socket message received:', {
+      userId: message.userId,
+      userName: message.data?.userName,
+      currentUser: game.user?.id,
+      isOwnMessage: message.userId === game.user?.id,
+      currentMemberCount: currentMemberCount,
+      currentMembers: this.store.getSessionState().members.map(m => ({ id: m.userId, name: m.name }))
+    });
 
     // Emit event for SessionManager to handle
     Hooks.callAll('youtubeDJ.userJoined', {
       userId: message.userId,
       userName: message.data?.userName || 'Unknown'
     });
+    
+    logger.debug('🎵 YouTube DJ | Emitted youtubeDJ.userJoined hook for:', message.data?.userName, 'to SessionManager');
   }
 }
 
