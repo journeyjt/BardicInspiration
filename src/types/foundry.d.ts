@@ -1,6 +1,12 @@
 // FoundryVTT augmentations and custom types for Bardic Inspiration module
 
 declare global {
+  // FoundryVTT global objects
+  const game: any;
+  const ui: any;
+  const canvas: any;
+  const CONFIG: any;
+  const CONST: any;
   namespace Hooks {
     // Custom hook types for Bardic Inspiration module
     interface StaticCallbacks {

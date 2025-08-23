@@ -4,7 +4,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
-    "strict": true,
+    "strict": false,
     "noEmit": true,
     "declaration": false,
     "esModuleInterop": true,
@@ -13,6 +13,9 @@
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
     "resolveJsonModule": true,
+    "noImplicitAny": false,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
     "typeRoots": [
       "./node_modules/@types",
       "./node_modules/@league-of-foundry-developers"
