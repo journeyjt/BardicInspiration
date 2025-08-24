@@ -74,8 +74,8 @@ export interface PlayerState {
   playbackState: 'playing' | 'paused' | 'stopped' | 'loading';
   currentTime: number;
   duration: number;
-  isMuted: boolean;
-  volume: number; // 0-100
+  // Note: isMuted and volume are now stored as per-user client settings
+  // Use game.settings.get('bardic-inspiration', 'youtubeDJ.userMuted') and 'youtubeDJ.userVolume'
   autoplayConsent: boolean;
   lastHeartbeat: HeartbeatData | null;
   driftTolerance: number;
@@ -135,8 +135,7 @@ export function createDefaultPlayerState(): PlayerState {
     playbackState: 'stopped',
     currentTime: 0,
     duration: 0,
-    isMuted: false,
-    volume: 50, // Default to 50% volume
+    // isMuted and volume removed - now stored in client settings
     autoplayConsent: false,
     lastHeartbeat: null,
     driftTolerance: 1.0,

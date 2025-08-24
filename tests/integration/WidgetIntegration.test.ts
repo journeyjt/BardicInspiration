@@ -242,33 +242,21 @@ describe('Widget Integration', () => {
       
       // Mute
       playerManager.mute();
-      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.playerCommand', {
-        command: 'mute',
-        args: undefined
+      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.localPlayerCommand', {
+        command: 'mute'
       });
 
-      // Update state
-      store.updateState({
-        player: { isMuted: true }
-      });
-
-      let state = store.getState();
-      expect(state.player.isMuted).toBe(true);
+      // mute state is now stored in client settings, not global state
+      // So we don't need to update/check the global state
 
       // Unmute
       playerManager.unmute();
-      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.playerCommand', {
-        command: 'unMute',
-        args: undefined
+      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.localPlayerCommand', {
+        command: 'unMute'
       });
 
-      // Update state
-      store.updateState({
-        player: { isMuted: false }
-      });
-
-      state = store.getState();
-      expect(state.player.isMuted).toBe(false);
+      // mute state is now stored in client settings, not global state
+      // So we don't need to update/check the global state
     });
 
     it('should handle seek operations from widget', async () => {

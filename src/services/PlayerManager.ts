@@ -244,16 +244,13 @@ export class PlayerManager {
     }
 
     try {
-      Hooks.callAll('youtubeDJ.playerCommand', { command: 'mute' });
+      // Send command only to local player (not to all users)
+      Hooks.callAll('youtubeDJ.localPlayerCommand', { command: 'mute' });
 
-      this.store.updateState({
-        player: {
-          ...this.store.getPlayerState(),
-          isMuted: true
-        }
-      });
+      // Store mute preference in client settings (per-user)
+      await game.settings.set('bardic-inspiration', 'youtubeDJ.userMuted', true);
 
-      logger.debug('🎵 YouTube DJ | Player muted');
+      logger.debug('🎵 YouTube DJ | Player muted (local only)');
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to mute:', error);
       throw error;
@@ -269,16 +266,13 @@ export class PlayerManager {
     }
 
     try {
-      Hooks.callAll('youtubeDJ.playerCommand', { command: 'unMute' });
+      // Send command only to local player (not to all users)
+      Hooks.callAll('youtubeDJ.localPlayerCommand', { command: 'unMute' });
 
-      this.store.updateState({
-        player: {
-          ...this.store.getPlayerState(),
-          isMuted: false
-        }
-      });
+      // Store mute preference in client settings (per-user)
+      await game.settings.set('bardic-inspiration', 'youtubeDJ.userMuted', false);
 
-      logger.debug('🎵 YouTube DJ | Player unmuted');
+      logger.debug('🎵 YouTube DJ | Player unmuted (local only)');
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to unmute:', error);
       throw error;
@@ -289,13 +283,45 @@ export class PlayerManager {
    * Toggle mute state
    */
   async toggleMute(): Promise<void> {
-    const currentlyMuted = this.store.getPlayerState().isMuted;
+    // Get mute state from client settings instead of global state
+    const currentlyMuted = game.settings.get('bardic-inspiration', 'youtubeDJ.userMuted') as boolean;
     
     if (currentlyMuted) {
       await this.unmute();
     } else {
       await this.mute();
     }
+  }
+
+  /**
+   * Get user's current mute preference
+   */
+  getUserMuteState(): boolean {
+    return game.settings.get('bardic-inspiration', 'youtubeDJ.userMuted') as boolean;
+  }
+
+  /**
+   * Get user's current volume preference  
+   */
+  getUserVolume(): number {
+    return game.settings.get('bardic-inspiration', 'youtubeDJ.userVolume') as number;
+  }
+
+  /**
+   * Set user's volume preference
+   */
+  async setUserVolume(volume: number): Promise<void> {
+    if (volume < 0 || volume > 100) {
+      throw new Error('Volume must be between 0 and 100');
+    }
+    
+    // Store in client settings
+    await game.settings.set('bardic-inspiration', 'youtubeDJ.userVolume', volume);
+    
+    // Send command only to local player
+    Hooks.callAll('youtubeDJ.localPlayerCommand', { command: 'setVolume', args: [volume] });
+    
+    logger.debug(`🎵 YouTube DJ | User volume set to ${volume} (local only)`);
   }
 
   /**

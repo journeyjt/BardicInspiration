@@ -393,7 +393,7 @@ describe('PlayerManager', () => {
       
       await playerManager.mute();
 
-      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.playerCommand', {
+      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.localPlayerCommand', {
         command: 'mute'
       });
     });
@@ -403,7 +403,7 @@ describe('PlayerManager', () => {
       
       await playerManager.unmute();
 
-      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.playerCommand', {
+      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.localPlayerCommand', {
         command: 'unMute'
       });
     });

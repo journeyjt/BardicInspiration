@@ -29,14 +29,37 @@ export class QueueManager {
     Hooks.on('youtubeDJ.queueAdd', this.onQueueAdd.bind(this));
     Hooks.on('youtubeDJ.queueRemove', this.onQueueRemove.bind(this));
     Hooks.on('youtubeDJ.queueUpdate', this.onQueueUpdate.bind(this));
+    Hooks.on('youtubeDJ.queueClear', this.onQueueClear.bind(this));
+  }
+
+  /**
+   * Check if user can add videos to queue
+   */
+  private canAddToQueue(): boolean {
+    // Check if Group Mode is enabled
+    const groupMode = game.settings.get('bardic-inspiration', 'youtubeDJ.groupMode') as boolean;
+    
+    if (groupMode) {
+      // In Group Mode, any user in the session can add videos
+      const sessionState = this.store.getSessionState();
+      const currentUserId = game.user?.id;
+      return sessionState.hasJoinedSession && 
+             sessionState.members.some(m => m.userId === currentUserId && m.isActive);
+    } else {
+      // In single-DJ mode, only the DJ can add videos
+      return this.store.isDJ();
+    }
   }
 
   /**
    * Add video to queue
    */
   async addVideo(videoInfo: VideoInfo, playNow: boolean = false): Promise<void> {
-    if (!this.store.isDJ()) {
-      throw new Error('Only DJ can add videos to queue');
+    if (!this.canAddToQueue()) {
+      const groupMode = game.settings.get('bardic-inspiration', 'youtubeDJ.groupMode') as boolean;
+      throw new Error(groupMode 
+        ? 'You must be in the listening session to add videos to the queue' 
+        : 'Only the DJ can add videos to the queue');
     }
 
     const userId = game.user?.id;
@@ -471,7 +494,7 @@ export class QueueManager {
    */
   async clearQueue(): Promise<void> {
     if (!this.store.isDJ()) {
-      throw new Error('Only DJ can clear queue');
+      throw new Error('Only the DJ can clear the queue');
     }
 
     logger.debug('🎵 YouTube DJ | Clearing queue...');
@@ -482,6 +505,10 @@ export class QueueManager {
         currentIndex: -1,
         mode: 'single-dj',
         djUserId: this.store.getSessionState().djUserId
+      },
+      player: {
+        ...this.store.getPlayerState(),
+        playbackState: 'paused'
       }
     });
 
@@ -626,35 +653,47 @@ export class QueueManager {
   /**
    * Handle queue next event from DJ (for listeners)
    */
-  private onQueueNext(data: { nextIndex: number; videoItem: any; timestamp: number }): void {
-    // Only update state if we're not the DJ (DJ already updated their state)
-    if (this.store.isDJ()) {
+  private onQueueNext(data: { nextIndex: number; videoItem: any; timestamp: number; userId: string; cycledItem?: any; isCycling?: boolean }): void {
+    // Don't sync our own changes (avoid double-processing)
+    if (data.userId === game.user?.id) {
       return;
     }
     
     logger.debug('🎵 YouTube DJ | Syncing queue next from DJ:', data.nextIndex);
     
     const currentQueue = this.store.getQueueState();
+    let newQueue = [...currentQueue.items];
     
-    // Update queue index to match DJ
+    // If this is a cycling operation, reorder the queue to match DJ
+    if (data.isCycling && data.cycledItem && currentQueue.currentIndex >= 0) {
+      // Remove the current item and add it to the end (same as DJ did)
+      const cycledItemIndex = currentQueue.currentIndex;
+      if (cycledItemIndex < newQueue.length) {
+        const removedItem = newQueue.splice(cycledItemIndex, 1)[0];
+        newQueue.push(removedItem);
+      }
+    }
+    
+    // Update queue to match DJ's state
     this.store.updateState({
       queue: {
         ...currentQueue,
+        items: newQueue,
         currentIndex: data.nextIndex
       }
     });
   }
 
   /**
-   * Handle queue add event from DJ (for listeners)
+   * Handle queue add event from other users
    */
-  private onQueueAdd(data: { queueItem: any; playNow: boolean; timestamp: number }): void {
-    // Only update state if we're not the DJ (DJ already updated their state)
-    if (this.store.isDJ()) {
+  private onQueueAdd(data: { queueItem: any; playNow: boolean; timestamp: number; userId: string }): void {
+    // Don't sync our own changes (avoid double-adding)
+    if (data.userId === game.user?.id) {
       return;
     }
     
-    logger.debug('🎵 YouTube DJ | Syncing queue add from DJ:', data.queueItem?.title);
+    logger.debug('🎵 YouTube DJ | Syncing queue add from user:', data.userId, '-', data.queueItem?.title);
     
     const currentQueue = this.store.getQueueState();
     const newQueue = [...currentQueue.items, data.queueItem];
@@ -758,6 +797,32 @@ export class QueueManager {
   }
 
   /**
+   * Handle queue clear event from DJ (for listeners)
+   */
+  private onQueueClear(data: { timestamp: number; userId: string }): void {
+    // Don't sync our own changes (avoid double-processing)
+    if (data.userId === game.user?.id) {
+      return;
+    }
+    
+    logger.debug('🎵 YouTube DJ | Syncing queue clear from DJ');
+    
+    // Clear the queue
+    this.store.updateState({
+      queue: {
+        items: [],
+        currentIndex: -1,
+        mode: 'single-dj',
+        djUserId: this.store.getSessionState().djUserId
+      },
+      player: {
+        ...this.store.getPlayerState(),
+        playbackState: 'paused'
+      }
+    });
+  }
+
+  /**
    * Handle video ended event
    */
   private async onVideoEnded(data: { videoId: string }): Promise<void> {
@@ -823,6 +888,7 @@ export class QueueManager {
     Hooks.off('youtubeDJ.queueAdd', this.onQueueAdd.bind(this));
     Hooks.off('youtubeDJ.queueRemove', this.onQueueRemove.bind(this));
     Hooks.off('youtubeDJ.queueUpdate', this.onQueueUpdate.bind(this));
+    Hooks.off('youtubeDJ.queueClear', this.onQueueClear.bind(this));
     logger.debug('🎵 YouTube DJ | QueueManager destroyed');
   }
 }

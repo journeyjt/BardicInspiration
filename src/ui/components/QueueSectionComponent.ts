@@ -27,7 +27,10 @@ export class QueueSectionComponent extends BaseComponent {
       stateSubscriptions: [
         'queue.items',
         'queue.currentIndex',
+        'queue.mode', // Need to know queue mode for Group Mode
         'session.djUserId', // Need to know DJ status for controls
+        'session.hasJoinedSession', // Need to know if user is in session
+        'session.members', // Need to check if user is active member
         'player.isReady', // Need for enabling/disabling video input controls
         'player.playbackState', // Need for play/pause button state
         'player.currentVideo' // Need for currently playing metadata
@@ -45,7 +48,17 @@ export class QueueSectionComponent extends BaseComponent {
   protected async prepareContext(): Promise<any> {
     const queueState = this.store.getQueueState();
     const playerState = this.store.getPlayerState();
+    const sessionState = this.store.getSessionState();
     const isDJ = this.store.isDJ();
+    
+    // Check if Group Mode is enabled
+    const groupMode = game.settings.get('bardic-inspiration', 'youtubeDJ.groupMode') as boolean;
+    
+    // Determine if user can add to queue
+    const currentUserId = game.user?.id;
+    const isActiveMember = sessionState.hasJoinedSession && 
+                          sessionState.members.some(m => m.userId === currentUserId && m.isActive);
+    const canAddToQueue = groupMode ? isActiveMember : isDJ;
 
     // Separate currently playing from upcoming queue
     let currentlyPlaying = null;
@@ -91,7 +104,13 @@ export class QueueSectionComponent extends BaseComponent {
       
       // Control state
       isDJ,
-      isPlayerReady: playerState.isReady
+      canAddToQueue,
+      groupMode,
+      isPlayerReady: playerState.isReady,
+      
+      // Session state for UI hints
+      isInSession: sessionState.hasJoinedSession,
+      isActiveMember
     };
   }
 
