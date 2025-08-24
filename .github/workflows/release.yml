@@ -217,6 +217,84 @@ jobs:
         draft: false
         prerelease: false
 
+    - name: Publish to Foundry VTT Package Release API
+      if: ${{ !github.event.release.prerelease }}
+      env:
+        FOUNDRY_RELEASE_TOKEN: ${{ secrets.FOUNDRY_RELEASE_TOKEN }}
+      run: |
+        echo "Publishing to Foundry VTT Package Release API..."
+        
+        # Check if token is set
+        if [ -z "$FOUNDRY_RELEASE_TOKEN" ]; then
+          echo "WARNING: FOUNDRY_RELEASE_TOKEN not set, skipping Foundry API publish"
+          echo "To enable automatic publishing to Foundry's package listing:"
+          echo "  1. Get your API key from https://foundryvtt.com/me/api"
+          echo "  2. Add it as a repository secret named FOUNDRY_RELEASE_TOKEN"
+          exit 0
+        fi
+        
+        # Get the package ID from module.json
+        PACKAGE_ID=$(node -e "console.log(JSON.parse(require('fs').readFileSync('module.json', 'utf8')).id)")
+        
+        # Prepare the release data
+        MANIFEST_URL="https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/module.json"
+        RELEASE_VERSION="${{ github.event.release.tag_name }}"
+        RELEASE_VERSION="${RELEASE_VERSION#v}" # Remove 'v' prefix if present
+        
+        # Get compatibility info from module.json
+        COMPATIBILITY=$(node -e "
+          const manifest = JSON.parse(require('fs').readFileSync('module.json', 'utf8'));
+          console.log(JSON.stringify({
+            minimum: manifest.compatibility.minimum,
+            verified: manifest.compatibility.verified,
+            maximum: manifest.compatibility.maximum || ''
+          }));
+        ")
+        
+        # Extract individual compatibility values
+        MIN_VERSION=$(echo $COMPATIBILITY | node -e "console.log(JSON.parse(require('fs').readFileSync(0, 'utf8')).minimum)")
+        VERIFIED_VERSION=$(echo $COMPATIBILITY | node -e "console.log(JSON.parse(require('fs').readFileSync(0, 'utf8')).verified)")
+        MAX_VERSION=$(echo $COMPATIBILITY | node -e "console.log(JSON.parse(require('fs').readFileSync(0, 'utf8')).maximum || '')")
+        
+        # Prepare the API request payload
+        PAYLOAD=$(cat <<EOF
+        {
+          "id": "$PACKAGE_ID",
+          "release": {
+            "version": "$RELEASE_VERSION",
+            "manifest": "$MANIFEST_URL",
+            "notes": "https://github.com/${{ github.repository }}/releases/tag/${{ github.event.release.tag_name }}",
+            "compatibility": {
+              "minimum": "$MIN_VERSION",
+              "verified": "$VERIFIED_VERSION"$([ -n "$MAX_VERSION" ] && echo ",\"maximum\": \"$MAX_VERSION\"" || echo "")
+            }
+          }
+        }
+        EOF
+        )
+        
+        echo "Submitting release to Foundry VTT Package API..."
+        echo "Package ID: $PACKAGE_ID"
+        echo "Version: $RELEASE_VERSION"
+        echo "Manifest URL: $MANIFEST_URL"
+        
+        # Submit to Foundry VTT Package Release API
+        RESPONSE=$(curl -s -X POST \
+          -H "Content-Type: application/json" \
+          -H "Authorization: $FOUNDRY_RELEASE_TOKEN" \
+          -d "$PAYLOAD" \
+          https://api.foundryvtt.com/_api/packages/release)
+        
+        # Check response
+        if echo "$RESPONSE" | grep -q "error"; then
+          echo "ERROR: Failed to publish to Foundry API"
+          echo "Response: $RESPONSE"
+          exit 1
+        else
+          echo "SUCCESS: Package published to Foundry VTT Package Release API!"
+          echo "Response: $RESPONSE"
+        fi
+
     - name: Release Summary
       run: |
         echo "Release completed successfully!"
@@ -228,3 +306,9 @@ jobs:
         echo "  - Download URL: https://github.com/${{ github.repository }}/releases/download/${{ github.event.release.tag_name }}/module.zip"
         echo ""
         echo "Users can install this module using the manifest URL above."
+        echo ""
+        if [ -n "${{ secrets.FOUNDRY_RELEASE_TOKEN }}" ]; then
+          echo "✅ Module has been published to the Foundry VTT Package Listing!"
+        else
+          echo "ℹ️ To auto-publish to Foundry VTT Package Listing, add FOUNDRY_RELEASE_TOKEN secret"
+        fi
