@@ -50,6 +50,18 @@ export class SessionStore {
     }
 
     logger.debug('🎵 YouTube DJ | Initializing SessionStore');
+    
+    // Listen for Group Mode changes
+    Hooks.on('youtubeDJ.groupModeChanged', (data: { enabled: boolean }) => {
+      logger.info(`🎵 YouTube DJ | Group Mode changed to: ${data.enabled ? 'enabled' : 'disabled'}`);
+      this.updateState({
+        queue: {
+          ...this.state.queue,
+          mode: data.enabled ? 'collaborative' : 'single-dj'
+        }
+      });
+    });
+    
     this.initialized = true;
   }
 
@@ -84,6 +96,9 @@ export class SessionStore {
       if (savedState) {
         // Use new unified state
         this.state = { ...createDefaultYoutubeDJState(), ...savedState };
+        // Ensure queue mode matches Group Mode setting
+        const groupMode = game.settings.get('bardic-inspiration', 'youtubeDJ.groupMode') as boolean;
+        this.state.queue.mode = groupMode ? 'collaborative' : 'single-dj';
       } else {
         // Migrate from legacy settings
         this.state = createDefaultYoutubeDJState();
@@ -96,10 +111,12 @@ export class SessionStore {
           lastActivity: member.lastActivity || Date.now(),
           missedHeartbeats: member.missedHeartbeats ?? 0
         }));
+        // Check Group Mode setting to determine queue mode
+        const groupMode = game.settings.get('bardic-inspiration', 'youtubeDJ.groupMode') as boolean;
         this.state.queue = {
           items: queueState.items || [],
           currentIndex: queueState.currentIndex || -1,
-          mode: queueState.mode || 'single-dj',
+          mode: groupMode ? 'collaborative' : 'single-dj',
           djUserId: queueState.djUserId || currentDJ
         };
       }

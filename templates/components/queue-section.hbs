@@ -19,7 +19,7 @@
   </div>
 </div>
 
-{{#if isDJ}}
+{{#if canAddToQueue}}
 <!-- Video Input Controls (moved from PlayerControls) -->
 <div class="control-group video-input-group">
   <div class="control-group-header">
@@ -42,6 +42,17 @@
     </div>
   </div>
 </div>
+{{else}}
+  {{#if groupMode}}
+    {{#unless isInSession}}
+    <div class="control-group info-message">
+      <div class="info-content">
+        <i class="fas fa-info-circle"></i>
+        <span>Join the listening session to add videos to the queue</span>
+      </div>
+    </div>
+    {{/unless}}
+  {{/if}}
 {{/if}}
 
 {{! Playback Controls - shown when queue has videos but no currently playing video }}

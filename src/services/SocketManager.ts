@@ -196,6 +196,7 @@ export class SocketManager {
     this.registerHandler('QUEUE_REMOVE', new QueueRemoveHandler(this.store));
     this.registerHandler('QUEUE_UPDATE', new QueueUpdateHandler(this.store));
     this.registerHandler('QUEUE_NEXT', new QueueNextHandler(this.store));
+    this.registerHandler('QUEUE_CLEAR', new QueueClearHandler(this.store));
 
     logger.debug('🎵 YouTube DJ | Default message handlers registered');
   }
@@ -733,13 +734,14 @@ class QueueAddHandler implements MessageHandler {
   constructor(private store: SessionStore) {}
 
   handle(message: YouTubeDJMessage): void {
-    logger.debug('🎵 YouTube DJ | Queue add from DJ');
+    logger.debug('🎵 YouTube DJ | Queue add from user:', message.userId);
 
     // Emit event for QueueManager to handle
     Hooks.callAll('youtubeDJ.queueAdd', {
       queueItem: message.data?.queueItem,
       playNow: message.data?.playNow || false,
-      timestamp: message.timestamp
+      timestamp: message.timestamp,
+      userId: message.userId  // Pass the original sender's ID
     });
   }
 }
@@ -783,7 +785,24 @@ class QueueNextHandler implements MessageHandler {
     Hooks.callAll('youtubeDJ.queueNext', {
       nextIndex: message.data?.nextIndex,
       videoItem: message.data?.videoItem,
-      timestamp: message.timestamp
+      timestamp: message.timestamp,
+      userId: message.userId,
+      cycledItem: message.data?.cycledItem,
+      isCycling: message.data?.isCycling
+    });
+  }
+}
+
+class QueueClearHandler implements MessageHandler {
+  constructor(private store: SessionStore) {}
+
+  handle(message: YouTubeDJMessage): void {
+    logger.debug('🎵 YouTube DJ | Queue clear from DJ');
+
+    // Emit event for QueueManager to handle
+    Hooks.callAll('youtubeDJ.queueClear', {
+      timestamp: message.timestamp,
+      userId: message.userId
     });
   }
 }

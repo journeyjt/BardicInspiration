@@ -36,6 +36,11 @@ describe('QueueManager', () => {
       // Set user as DJ to allow queue operations
       TestUtils.mockUser({ id: 'dj-user' });
       store.updateState({ session: { djUserId: 'dj-user' } });
+      // Mock the Group Mode setting as disabled by default
+      vi.spyOn(game.settings, 'get').mockImplementation((scope: string, key: string) => {
+        if (scope === 'bardic-inspiration' && key === 'youtubeDJ.groupMode') return false;
+        return null;
+      });
     });
 
     it('should add video to queue', async () => {
@@ -223,6 +228,163 @@ describe('QueueManager', () => {
 
       const state = store.getState();
       expect(state.queue.currentIndex).toBe(originalIndex); // Should remain unchanged
+    });
+  });
+
+  describe('Group Mode Permissions', () => {
+    const testVideoInfo = {
+      videoId: 'test-video-gm',
+      title: 'Test Group Mode Video',
+      duration: 180
+    };
+
+    describe('when Group Mode is disabled', () => {
+      beforeEach(() => {
+        // Mock Group Mode as disabled
+        vi.spyOn(game.settings, 'get').mockImplementation((scope: string, key: string) => {
+          if (scope === 'bardic-inspiration' && key === 'youtubeDJ.groupMode') return false;
+          return null;
+        });
+      });
+
+      it('should allow only DJ to add videos', async () => {
+        // Set user as DJ
+        TestUtils.mockUser({ id: 'dj-user', name: 'DJ User' });
+        store.updateState({ 
+          session: { 
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 }
+            ]
+          } 
+        });
+
+        // DJ should be able to add videos
+        await expect(queueManager.addVideo(testVideoInfo)).resolves.not.toThrow();
+      });
+
+      it('should prevent non-DJ users from adding videos', async () => {
+        // Set user as non-DJ member
+        TestUtils.mockUser({ id: 'member-user', name: 'Member User' });
+        store.updateState({ 
+          session: { 
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 },
+              { userId: 'member-user', name: 'Member User', isDJ: false, isActive: true, missedHeartbeats: 0 }
+            ]
+          } 
+        });
+
+        // Non-DJ should not be able to add videos
+        await expect(queueManager.addVideo(testVideoInfo)).rejects.toThrow('Only the DJ can add videos to the queue');
+      });
+    });
+
+    describe('when Group Mode is enabled', () => {
+      beforeEach(() => {
+        // Mock Group Mode as enabled
+        vi.spyOn(game.settings, 'get').mockImplementation((scope: string, key: string) => {
+          if (scope === 'bardic-inspiration' && key === 'youtubeDJ.groupMode') return true;
+          return null;
+        });
+      });
+
+      afterEach(() => {
+        // Restore the default group mode setting for other tests
+        vi.spyOn(game.settings, 'get').mockImplementation((scope: string, key: string) => {
+          if (scope === 'bardic-inspiration' && key === 'youtubeDJ.groupMode') return false;
+          return null;
+        });
+      });
+
+      it('should allow any active session member to add videos', async () => {
+        // Set user as non-DJ member
+        TestUtils.mockUser({ id: 'member-user', name: 'Member User' });
+        store.updateState({ 
+          session: { 
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 },
+              { userId: 'member-user', name: 'Member User', isDJ: false, isActive: true, missedHeartbeats: 0 }
+            ]
+          },
+          queue: {
+            mode: 'collaborative'
+          }
+        });
+
+        // Non-DJ member should be able to add videos in Group Mode
+        await expect(queueManager.addVideo(testVideoInfo)).resolves.not.toThrow();
+        
+        const state = store.getState();
+        expect(state.queue.items).toHaveLength(1);
+        expect(state.queue.items[0].addedBy).toBe('Member User');
+      });
+
+      it('should prevent non-session members from adding videos', async () => {
+        // Set user as someone not in the session
+        TestUtils.mockUser({ id: 'outsider-user', name: 'Outsider User' });
+        store.updateState({ 
+          session: { 
+            djUserId: 'dj-user',
+            hasJoinedSession: false, // User hasn't joined session
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 }
+            ]
+          },
+          queue: {
+            mode: 'collaborative'
+          }
+        });
+
+        // Non-session member should not be able to add videos
+        await expect(queueManager.addVideo(testVideoInfo)).rejects.toThrow('You must be in the listening session to add videos to the queue');
+      });
+
+      it('should prevent inactive members from adding videos', async () => {
+        // Set user as inactive member
+        TestUtils.mockUser({ id: 'inactive-user', name: 'Inactive User' });
+        store.updateState({ 
+          session: { 
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 },
+              { userId: 'inactive-user', name: 'Inactive User', isDJ: false, isActive: false, missedHeartbeats: 10 }
+            ]
+          },
+          queue: {
+            mode: 'collaborative'
+          }
+        });
+
+        // Inactive member should not be able to add videos
+        await expect(queueManager.addVideo(testVideoInfo)).rejects.toThrow('You must be in the listening session to add videos to the queue');
+      });
+
+      it('should still allow DJ to add videos', async () => {
+        // Set user as DJ
+        TestUtils.mockUser({ id: 'dj-user', name: 'DJ User' });
+        store.updateState({ 
+          session: { 
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 }
+            ]
+          },
+          queue: {
+            mode: 'collaborative'
+          }
+        });
+
+        // DJ should still be able to add videos in Group Mode
+        await expect(queueManager.addVideo(testVideoInfo)).resolves.not.toThrow();
+      });
     });
   });
 

@@ -97,6 +97,44 @@ Hooks.once('init', () => {
     }
   });
 
+  // Group Mode setting - visible in module settings
+  game.settings.register('bardic-inspiration', 'youtubeDJ.groupMode', {
+    name: 'Group Mode',
+    hint: 'When enabled, all users in the listening session can add videos to the queue (not just the DJ)',
+    scope: 'world',
+    config: true,
+    type: Boolean,
+    default: false,
+    onChange: (value: boolean) => {
+      logger.info(`YouTube DJ Group Mode ${value ? 'enabled' : 'disabled'}`);
+      // Update the queue state mode
+      const queueState = game.settings.get('core', 'youtubeDJ.queueState') as any;
+      queueState.mode = value ? 'collaborative' : 'single-dj';
+      game.settings.set('core', 'youtubeDJ.queueState', queueState);
+      // Notify all users of the mode change
+      Hooks.callAll('youtubeDJ.groupModeChanged', { enabled: value });
+    }
+  });
+
+  // Client-side settings for user preferences (not synchronized)
+  game.settings.register('bardic-inspiration', 'youtubeDJ.userMuted', {
+    name: 'Personal Mute State',
+    hint: 'Your personal mute preference for the YouTube DJ player',
+    scope: 'client',
+    config: false, // Hidden from settings menu
+    type: Boolean,
+    default: false
+  });
+
+  game.settings.register('bardic-inspiration', 'youtubeDJ.userVolume', {
+    name: 'Personal Volume',
+    hint: 'Your personal volume preference for the YouTube DJ player',
+    scope: 'client', 
+    config: false, // Hidden from settings menu
+    type: Number,
+    default: 50
+  });
+
   logger.info('YouTube DJ world settings registered');
   
   // Register module API globally

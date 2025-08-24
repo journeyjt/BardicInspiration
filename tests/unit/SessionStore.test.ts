@@ -243,4 +243,140 @@ describe('SessionStore', () => {
       expect(state.session.members.every(m => !m.isDJ)).toBe(true);
     });
   });
+
+  describe('Group Mode', () => {
+    beforeEach(() => {
+      // Reset hooks
+      vi.clearAllMocks();
+    });
+
+    it('should update queue mode when Group Mode is enabled', () => {
+      // Mock Group Mode hook call
+      const groupModeHandler = vi.fn();
+      
+      // Re-initialize to register hooks
+      (SessionStore as any).instance = null;
+      store = SessionStore.getInstance();
+      
+      // Capture the hook handler during initialization
+      const mockHooks = TestUtils.getMocks().Hooks;
+      store.initialize();
+      
+      // Find the groupModeChanged hook handler
+      const hookCall = mockHooks.on.mock.calls.find(call => call[0] === 'youtubeDJ.groupModeChanged');
+      expect(hookCall).toBeDefined();
+      
+      const handler = hookCall![1];
+      
+      // Call the handler with enabled = true
+      handler({ enabled: true });
+      
+      const state = store.getState();
+      expect(state.queue.mode).toBe('collaborative');
+    });
+
+    it('should update queue mode when Group Mode is disabled', () => {
+      // Re-initialize to register hooks
+      (SessionStore as any).instance = null;
+      store = SessionStore.getInstance();
+      
+      // Capture the hook handler during initialization
+      const mockHooks = TestUtils.getMocks().Hooks;
+      store.initialize();
+      
+      // Find the groupModeChanged hook handler
+      const hookCall = mockHooks.on.mock.calls.find(call => call[0] === 'youtubeDJ.groupModeChanged');
+      const handler = hookCall![1];
+      
+      // Set initial state to collaborative
+      store.updateState({
+        queue: { mode: 'collaborative' }
+      });
+      
+      // Call the handler with enabled = false
+      handler({ enabled: false });
+      
+      const state = store.getState();
+      expect(state.queue.mode).toBe('single-dj');
+    });
+
+    it('should load queue mode based on Group Mode setting', async () => {
+      const mockSettings = TestUtils.getMocks().settings;
+      mockSettings.get.mockImplementation((scope: string, key: string) => {
+        if (scope === 'bardic-inspiration' && key === 'youtubeDJ.groupMode') return true;
+        if (key === 'youtubeDJ.sessionMembers') return [];
+        if (key === 'youtubeDJ.currentDJ') return null;
+        if (key === 'youtubeDJ.queueState') {
+          return { items: [], currentIndex: -1, mode: 'single-dj', djUserId: null };
+        }
+        return null;
+      });
+
+      await store.loadFromWorld();
+
+      const state = store.getState();
+      expect(state.queue.mode).toBe('collaborative');
+    });
+
+    it('should preserve other queue state when updating mode', () => {
+      const queueItems = [
+        { id: 'v1', videoId: 'video-1', title: 'Video 1', addedBy: 'user-1', addedAt: Date.now() }
+      ];
+      
+      // Re-initialize to register hooks (following pattern of other tests)
+      (SessionStore as any).instance = null;
+      store = SessionStore.getInstance();
+      
+      const mockHooks = TestUtils.getMocks().Hooks;
+      store.initialize();
+      
+      // Set queue state after initialization
+      store.updateState({
+        queue: {
+          items: queueItems,
+          currentIndex: 0,
+          mode: 'single-dj'
+        }
+      });
+      
+      // Find the groupModeChanged hook handler
+      const hookCall = mockHooks.on.mock.calls.find(call => call[0] === 'youtubeDJ.groupModeChanged');
+      expect(hookCall).toBeDefined();
+      const handler = hookCall![1];
+      
+      // Call the handler to simulate Group Mode being enabled
+      handler({ enabled: true });
+      
+      const state = store.getState();
+      expect(state.queue.mode).toBe('collaborative');
+      expect(state.queue.items).toEqual(queueItems);
+      expect(state.queue.currentIndex).toBe(0);
+    });
+
+    it('should emit state change when Group Mode changes', () => {
+      const mockHooks = TestUtils.getMocks().Hooks;
+      
+      // Re-initialize to register hooks
+      (SessionStore as any).instance = null;
+      store = SessionStore.getInstance();
+      store.initialize();
+      
+      // Find and call the groupModeChanged hook handler
+      const hookCall = mockHooks.on.mock.calls.find(call => call[0] === 'youtubeDJ.groupModeChanged');
+      const handler = hookCall![1];
+      
+      // Clear previous calls
+      mockHooks.callAll.mockClear();
+      
+      handler({ enabled: true });
+      
+      expect(mockHooks.callAll).toHaveBeenCalledWith('youtubeDJ.stateChanged', expect.objectContaining({
+        changes: expect.objectContaining({
+          queue: expect.objectContaining({
+            mode: 'collaborative'
+          })
+        })
+      }));
+    });
+  });
 });

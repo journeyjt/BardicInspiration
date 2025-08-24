@@ -12,6 +12,7 @@ declare global {
     interface StaticCallbacks {
       'youtubeDJ.stateChanged': (event: { changes: Partial<YouTubeDJState> }) => void;
       'youtubeDJ.playerCommand': (data: { command: string; args?: any[] }) => void;
+      'youtubeDJ.localPlayerCommand': (data: { command: string; args?: any[] }) => void;
       'youtubeDJ.getCurrentTimeRequest': (data: { requestId: string }) => void;
       'youtubeDJ.currentTimeResponse': (data: { requestId: string; currentTime: number; duration: number }) => void;
       'youtubeDJ.queueNext': (data: { nextIndex: number; videoItem: QueueItem; timestamp: number }) => void;

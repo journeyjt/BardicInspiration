@@ -25,6 +25,7 @@ export class YouTubePlayerWidget {
     // Subscribe to state changes for player-specific updates only
     Hooks.on('youtubeDJ.stateChanged', this.onStateChanged.bind(this));
     Hooks.on('youtubeDJ.playerCommand', this.onPlayerCommand.bind(this));
+    Hooks.on('youtubeDJ.localPlayerCommand', this.onPlayerCommand.bind(this)); // Handle local-only commands
     Hooks.on('youtubeDJ.getCurrentTimeRequest', this.onGetCurrentTimeRequest.bind(this));
     
     // Subscribe to session state for handoff request notifications
@@ -222,12 +223,12 @@ export class YouTubePlayerWidget {
     if (hasJoinedSession) {
       if (!volumeControlSection) {
         // Create volume control section if it doesn't exist
-        const currentVolume = state.player.volume || 50;
+        const currentVolume = this.getUserVolume();
         const volumeHTML = `
           <div class="volume-control-section">
             <div class="volume-control-horizontal">
-              <button class="widget-btn mute-volume-btn" onclick="window.youtubeDJWidget?.toggleMute()" title="${state.player.isMuted ? 'Unmute' : 'Mute'}">
-                <i class="fas fa-${state.player.isMuted ? 'volume-mute' : 'volume-up'}"></i>
+              <button class="widget-btn mute-volume-btn" onclick="window.youtubeDJWidget?.toggleMute()" title="${this.getUserMuteState() ? 'Unmute' : 'Mute'}">
+                <i class="fas fa-${this.getUserMuteState() ? 'volume-mute' : 'volume-up'}"></i>
               </button>
               <input type="range" class="volume-slider" min="0" max="100" value="${currentVolume}" step="1" title="Volume: ${currentVolume}%">
             </div>
@@ -248,7 +249,7 @@ export class YouTubePlayerWidget {
         const volumeSlider = volumeControlSection.querySelector('.volume-slider') as HTMLInputElement;
         const volumeMuteButton = volumeControlSection.querySelector('.mute-volume-btn');
         const volumeIcon = volumeMuteButton?.querySelector('i');
-        const currentVolume = state.player.volume || 50;
+        const currentVolume = this.getUserVolume();
         
         if (volumeSlider) {
           volumeSlider.value = currentVolume.toString();
@@ -257,8 +258,8 @@ export class YouTubePlayerWidget {
         
         // Update mute button state
         if (volumeMuteButton && volumeIcon) {
-          volumeIcon.className = `fas fa-${state.player.isMuted ? 'volume-mute' : 'volume-up'}`;
-          volumeMuteButton.setAttribute('title', state.player.isMuted ? 'Unmute' : 'Mute');
+          volumeIcon.className = `fas fa-${this.getUserMuteState() ? 'volume-mute' : 'volume-up'}`;
+          volumeMuteButton.setAttribute('title', this.getUserMuteState() ? 'Unmute' : 'Mute');
         }
       }
     } else if (volumeControlSection) {
@@ -307,7 +308,7 @@ export class YouTubePlayerWidget {
     const hasJoinedSession = state.session.hasJoinedSession;
     const currentVideo = state.player.currentVideo;
     const isPlaying = state.player.playbackState === 'playing';
-    const currentVolume = state.player.volume || 50;
+    const currentVolume = this.getUserVolume();
 
     // CRITICAL: Check if player iframe exists - if it does, do selective updates instead of full re-render
     const existingIframe = document.getElementById(this.containerId);
@@ -633,8 +634,8 @@ export class YouTubePlayerWidget {
       ${hasJoinedSession ? `
         <div class="volume-control-section">
           <div class="volume-control-horizontal">
-            <button class="widget-btn mute-volume-btn" onclick="window.youtubeDJWidget?.toggleMute()" title="${state.player.isMuted ? 'Unmute' : 'Mute'}">
-              <i class="fas fa-${state.player.isMuted ? 'volume-mute' : 'volume-up'}"></i>
+            <button class="widget-btn mute-volume-btn" onclick="window.youtubeDJWidget?.toggleMute()" title="${this.getUserMuteState() ? 'Unmute' : 'Mute'}">
+              <i class="fas fa-${this.getUserMuteState() ? 'volume-mute' : 'volume-up'}"></i>
             </button>
             <input type="range" class="volume-slider" min="0" max="100" value="${currentVolume}" step="1" title="Volume: ${currentVolume}%">
           </div>
@@ -924,8 +925,7 @@ export class YouTubePlayerWidget {
         ...this.store.getPlayerState(),
         isReady: true,
         isInitializing: false,
-        isMuted: initialMuteState,
-        volume: initialVolume,
+        // isMuted and volume are now stored in client settings
         currentVideo: loadedVideoInfo
       }
     });
@@ -968,6 +968,41 @@ export class YouTubePlayerWidget {
     }, 100); // Small delay to ensure player is fully ready
 
     logger.info('🎵 YouTube DJ | Player is now ready for commands!');
+  }
+
+  /**
+   * Get user's personal mute state from client settings
+   */
+  private getUserMuteState(): boolean {
+    try {
+      return (game as any).settings.get('bardic-inspiration', 'youtubeDJ.userMuted') || false;
+    } catch (error) {
+      logger.debug('🎵 YouTube DJ | Failed to get user mute state, defaulting to false:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get user's personal volume from client settings
+   */
+  private getUserVolume(): number {
+    try {
+      return (game as any).settings.get('bardic-inspiration', 'youtubeDJ.userVolume') || 50;
+    } catch (error) {
+      logger.debug('🎵 YouTube DJ | Failed to get user volume, defaulting to 50:', error);
+      return 50;
+    }
+  }
+
+  /**
+   * Set user's personal volume in client settings
+   */
+  private async setUserVolume(volume: number): Promise<void> {
+    try {
+      await (game as any).settings.set('bardic-inspiration', 'youtubeDJ.userVolume', volume);
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to set user volume:', error);
+    }
   }
   
   /**
@@ -1170,12 +1205,16 @@ export class YouTubePlayerWidget {
           if (typeof this.player.mute === 'function') {
             this.player.mute();
             logger.debug('🎵 YouTube DJ | Mute command sent to player');
+            // Update mute button visual state after muting (small delay to let player update)
+            setTimeout(() => this.updateMuteButton(), 10);
           }
           break;
         case 'unMute':
           if (typeof this.player.unMute === 'function') {
             this.player.unMute();
             logger.debug('🎵 YouTube DJ | Unmute command sent to player');
+            // Update mute button visual state after unmuting (small delay to let player update)
+            setTimeout(() => this.updateMuteButton(), 10);
           }
           break;
       }
@@ -1248,29 +1287,17 @@ export class YouTubePlayerWidget {
       this.updateSessionLeaveWithoutRender();
     } else {
       logger.debug('🎵  Selective update path taken:', {
-        isMutedChange: event.changes.player?.isMuted !== undefined,
-        volumeChange: event.changes.player?.volume !== undefined,
+        // Mute and volume changes are now handled via client settings
+        isMutedChange: false, // Legacy compatibility
+        volumeChange: false, // Legacy compatibility
         membersChange: event.changes.session?.members !== undefined,
         djChange: event.changes.session?.djUserId !== undefined,
         otherChanges: Object.keys(event.changes || {}).filter(k => !['player', 'session'].includes(k))
       });
       
       // Handle specific player state changes without re-rendering
-      if (event.changes.player?.isMuted !== undefined) {
-        // Mute state changed - update only the mute button
-        logger.debug('🎵  Updating mute button only (no re-render)');
-        logger.debug('🎵 YouTube DJ | Widget updating mute button for mute state change');
-        this.updateMuteButton();
-        return;
-      }
-      
-      if (event.changes.player?.volume !== undefined) {
-        // Volume state changed - update only the volume slider
-        logger.debug('🎵  Updating volume slider only (no re-render)');
-        logger.debug('🎵 YouTube DJ | Widget updating volume slider for volume state change');
-        this.updateVolumeSlider();
-        return;
-      }
+      // Mute and volume changes are now handled via client settings, not state changes
+      // Legacy mute/volume change handling removed
       
       // For other player state changes, update specific elements without re-rendering
       this.updateCompactStatus(event);
@@ -1446,15 +1473,11 @@ export class YouTubePlayerWidget {
       const actualMuteState = this.player.isMuted();
 
       // Update local state with actual player state
-      this.store.updateState({
-        player: {
-          ...this.store.getPlayerState(),
-          isMuted: actualMuteState
-        }
-      });
+      // Mute state is now stored in client settings, no state update needed
+      // Legacy state update removed
 
-      // Update the mute button icon without full re-render
-      this.updateMuteButton();
+      // Update the mute button icon without full re-render (small delay to let player update)
+      setTimeout(() => this.updateMuteButton(), 10);
 
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to toggle mute:', error);
@@ -1494,13 +1517,13 @@ export class YouTubePlayerWidget {
       try {
         actualMuteState = this.player.isMuted();
       } catch (error) {
-        // Fallback to stored state if player query fails
-        actualMuteState = this.store.getPlayerState().isMuted;
-        logger.debug('🎵 YouTube DJ | Failed to query player mute state, using stored:', error);
+        // Fallback to client setting if player query fails
+        actualMuteState = this.getUserMuteState();
+        logger.debug('🎵 YouTube DJ | Failed to query player mute state, using client setting:', error);
       }
     } else {
-      // Player not ready, use stored state
-      actualMuteState = this.store.getPlayerState().isMuted;
+      // Player not ready, use client setting
+      actualMuteState = this.getUserMuteState();
     }
     
     // Update volume control mute button
@@ -1512,20 +1535,16 @@ export class YouTubePlayerWidget {
       volumeMuteButton.setAttribute('title', actualMuteState ? 'Unmute' : 'Mute');
     }
     
-    // Sync stored state with actual state if they differ
-    const storedMuteState = this.store.getPlayerState().isMuted;
+    // Sync client setting with actual state if they differ
+    const storedMuteState = this.getUserMuteState();
     if (actualMuteState !== storedMuteState) {
-      logger.debug('🎵 YouTube DJ | Syncing stored mute state with actual player state:', {
+      logger.debug('🎵 YouTube DJ | Syncing client mute setting with actual player state:', {
         stored: storedMuteState,
         actual: actualMuteState
       });
       
-      this.store.updateState({
-        player: {
-          ...this.store.getPlayerState(),
-          isMuted: actualMuteState
-        }
-      });
+      // Update client setting to match actual player
+      (game as any).settings.set('bardic-inspiration', 'youtubeDJ.userMuted', actualMuteState);
     }
   }
 
@@ -1739,8 +1758,7 @@ export class YouTubePlayerWidget {
             currentVideo: null,
             currentTime: 0,
             duration: 0,
-            volume: this.store.getPlayerState().volume || 50, // Preserve volume setting
-            isMuted: false,
+            // volume and isMuted are now stored in client settings
             autoplayConsent: false,
             lastHeartbeat: null,
             driftTolerance: 1.0,
@@ -2228,6 +2246,7 @@ export class YouTubePlayerWidget {
     // Remove hook listeners
     Hooks.off('youtubeDJ.stateChanged', this.onStateChanged.bind(this));
     Hooks.off('youtubeDJ.playerCommand', this.onPlayerCommand.bind(this));
+    Hooks.off('youtubeDJ.localPlayerCommand', this.onPlayerCommand.bind(this));
     Hooks.off('youtubeDJ.getCurrentTimeRequest', this.onGetCurrentTimeRequest.bind(this));
     
     // Remove from global reference
@@ -2270,13 +2289,8 @@ export class YouTubePlayerWidget {
       const actualVolume = this.player.getVolume();
       logger.debug(`🎵 YouTube DJ | Volume set result - requested: ${volume}, actual: ${actualVolume}`);
       
-      // Update state with actual volume
-      this.store.updateState({
-        player: {
-          ...this.store.getPlayerState(),
-          volume: actualVolume
-        }
-      });
+      // Store volume in client settings
+      this.setUserVolume(volume);
 
       // Update tooltip
       slider.setAttribute('title', `Volume: ${volume}%`);
@@ -2296,26 +2310,22 @@ export class YouTubePlayerWidget {
     
     if (volumeSlider) {
       // Query actual YouTube player volume if available
-      let actualVolume = this.store.getPlayerState().volume;
+      let actualVolume = this.getUserVolume();
       
       if (this.player && this.isPlayerReady) {
         try {
           actualVolume = this.player.getVolume();
           
-          // Sync stored state with actual state if they differ
-          const storedVolume = this.store.getPlayerState().volume;
+          // Sync client setting with actual state if they differ
+          const storedVolume = this.getUserVolume();
           if (Math.abs(actualVolume - storedVolume) > 1) { // Allow 1% tolerance
-            logger.debug('🎵 YouTube DJ | Syncing stored volume with actual player volume:', {
+            logger.debug('🎵 YouTube DJ | Syncing client setting with actual player volume:', {
               stored: storedVolume,
               actual: actualVolume
             });
             
-            this.store.updateState({
-              player: {
-                ...this.store.getPlayerState(),
-                volume: actualVolume
-              }
-            });
+            // Update client setting to match actual player
+            this.setUserVolume(actualVolume);
           }
         } catch (error) {
           logger.debug('🎵 YouTube DJ | Failed to query player volume, using stored:', error);
@@ -2468,23 +2478,20 @@ export class YouTubePlayerWidget {
     logger.debug('🎵 YouTube DJ | Syncing UI with actual YouTube player state');
 
     try {
-      // Sync mute state
+      // Sync mute state with client setting
       const actualMuted = this.player.isMuted();
-      const storedMuted = this.store.getPlayerState().isMuted;
+      const storedMuted = this.getUserMuteState();
       
-      // Sync volume state  
+      // Sync volume state with client setting
       const actualVolume = this.player.getVolume();
-      const storedVolume = this.store.getPlayerState().volume;
+      const storedVolume = this.getUserVolume();
 
-      // Update stored state if anything differs
-      if (actualMuted !== storedMuted || Math.abs(actualVolume - storedVolume) > 1) {
-        this.store.updateState({
-          player: {
-            ...this.store.getPlayerState(),
-            isMuted: actualMuted,
-            volume: actualVolume
-          }
-        });
+      // Update client settings if anything differs
+      if (actualMuted !== storedMuted) {
+        (game as any).settings.set('bardic-inspiration', 'youtubeDJ.userMuted', actualMuted);
+      }
+      if (Math.abs(actualVolume - storedVolume) > 1) {
+        this.setUserVolume(actualVolume);
       }
 
       // Update UI controls

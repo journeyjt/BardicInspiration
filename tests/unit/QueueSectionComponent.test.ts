@@ -211,6 +211,155 @@ describe('QueueSectionComponent', () => {
         expect(context.hasQueue).toBe(true);
       });
     });
+
+    describe('Group Mode Context', () => {
+      beforeEach(() => {
+        // Mock Group Mode setting
+        vi.spyOn(game.settings, 'get').mockImplementation((scope: string, key: string) => {
+          if (scope === 'bardic-inspiration' && key === 'youtubeDJ.groupMode') return true;
+          return null;
+        });
+      });
+
+      it('should provide Group Mode context when enabled', async () => {
+        TestUtils.mockUser({ id: 'member-user' });
+        store.updateState({
+          session: {
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 },
+              { userId: 'member-user', name: 'Member User', isDJ: false, isActive: true, missedHeartbeats: 0 }
+            ]
+          },
+          queue: { mode: 'collaborative' }
+        });
+
+        const context = await component.prepareContext();
+        
+        expect(context.groupMode).toBe(true);
+        expect(context.canAddToQueue).toBe(true);
+        expect(context.isDJ).toBe(false);
+        expect(context.isInSession).toBe(true);
+        expect(context.isActiveMember).toBe(true);
+      });
+
+      it('should deny queue access for non-session members in Group Mode', async () => {
+        TestUtils.mockUser({ id: 'outsider-user' });
+        store.updateState({
+          session: {
+            djUserId: 'dj-user',
+            hasJoinedSession: false, // User not in session
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 }
+            ]
+          },
+          queue: { mode: 'collaborative' }
+        });
+
+        const context = await component.prepareContext();
+        
+        expect(context.groupMode).toBe(true);
+        expect(context.canAddToQueue).toBe(false);
+        expect(context.isDJ).toBe(false);
+        expect(context.isInSession).toBe(false);
+        expect(context.isActiveMember).toBe(false);
+      });
+
+      it('should deny queue access for inactive members in Group Mode', async () => {
+        TestUtils.mockUser({ id: 'inactive-user' });
+        store.updateState({
+          session: {
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 },
+              { userId: 'inactive-user', name: 'Inactive User', isDJ: false, isActive: false, missedHeartbeats: 10 }
+            ]
+          },
+          queue: { mode: 'collaborative' }
+        });
+
+        const context = await component.prepareContext();
+        
+        expect(context.groupMode).toBe(true);
+        expect(context.canAddToQueue).toBe(false);
+        expect(context.isDJ).toBe(false);
+        expect(context.isInSession).toBe(true);
+        expect(context.isActiveMember).toBe(false);
+      });
+
+      it('should allow DJ to add videos in Group Mode', async () => {
+        TestUtils.mockUser({ id: 'dj-user' });
+        store.updateState({
+          session: {
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 }
+            ]
+          },
+          queue: { mode: 'collaborative' }
+        });
+
+        const context = await component.prepareContext();
+        
+        expect(context.groupMode).toBe(true);
+        expect(context.canAddToQueue).toBe(true);
+        expect(context.isDJ).toBe(true);
+      });
+    });
+
+    describe('Single-DJ Mode Context', () => {
+      beforeEach(() => {
+        // Mock Group Mode setting as disabled
+        vi.spyOn(game.settings, 'get').mockImplementation((scope: string, key: string) => {
+          if (scope === 'bardic-inspiration' && key === 'youtubeDJ.groupMode') return false;
+          return null;
+        });
+      });
+
+      it('should only allow DJ to add videos in single-DJ mode', async () => {
+        // Test non-DJ member
+        TestUtils.mockUser({ id: 'member-user' });
+        store.updateState({
+          session: {
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 },
+              { userId: 'member-user', name: 'Member User', isDJ: false, isActive: true, missedHeartbeats: 0 }
+            ]
+          },
+          queue: { mode: 'single-dj' }
+        });
+
+        const context = await component.prepareContext();
+        
+        expect(context.groupMode).toBe(false);
+        expect(context.canAddToQueue).toBe(false);
+        expect(context.isDJ).toBe(false);
+
+        // Test DJ
+        TestUtils.mockUser({ id: 'dj-user' });
+        store.updateState({
+          session: {
+            djUserId: 'dj-user',
+            hasJoinedSession: true,
+            members: [
+              { userId: 'dj-user', name: 'DJ User', isDJ: true, isActive: true, missedHeartbeats: 0 },
+              { userId: 'member-user', name: 'Member User', isDJ: false, isActive: true, missedHeartbeats: 0 }
+            ]
+          }
+        });
+
+        const contextDJ = await component.prepareContext();
+        
+        expect(contextDJ.groupMode).toBe(false);
+        expect(contextDJ.canAddToQueue).toBe(true);
+        expect(contextDJ.isDJ).toBe(true);
+      });
+    });
   });
 
   describe('Event Handlers', () => {

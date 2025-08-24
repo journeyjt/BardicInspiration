@@ -1345,6 +1345,28 @@
   background: #dc3545;
 }
 
+
+.info-message {
+  padding: var(--bardic-inspiration-space);
+  background: var(--bardic-inspiration-bg-card);
+  border: 1px solid var(--bardic-inspiration-border);
+  border-radius: var(--bardic-inspiration-radius);
+  margin-bottom: var(--bardic-inspiration-space);
+}
+
+.info-content {
+  display: flex;
+  align-items: center;
+  gap: var(--bardic-inspiration-space-sm);
+  color: var(--bardic-inspiration-text-secondary);
+  font-size: 0.875rem;
+}
+
+.info-content i {
+  color: var(--bardic-inspiration-accent);
+  font-size: 1rem;
+}
+
 /* Button Grids */
 .button-grid {
   display: grid;

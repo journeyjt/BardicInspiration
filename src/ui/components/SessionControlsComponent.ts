@@ -43,7 +43,7 @@ export class SessionControlsComponent extends BaseComponent {
     const currentUserId = game.user?.id;
     const isDJ = this.store.isDJ();
     const djUser = sessionState.members.find(m => m.isDJ);
-
+    
     return {
       // Session state
       isDJ,
