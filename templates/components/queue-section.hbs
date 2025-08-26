@@ -7,13 +7,25 @@
   <div class="section-status">
     <div class="queue-stats">
       <span class="queue-count">{{queueCount}} {{#if (eq queueCount 1)}}track{{else}}tracks{{/if}} in queue</span>
-      {{#if hasQueue}}
       {{#if isDJ}}
-      <button type="button" class="control-btn danger-btn clear-queue-btn" title="Clear entire queue">
-        <i class="fas fa-trash"></i>
-        <span>Clear</span>
-      </button>
-      {{/if}}
+      <div class="queue-actions">
+        {{#if hasQueue}}
+        <button type="button" class="control-btn save-queue-btn" title="Save current queue">
+          <i class="fas fa-save"></i>
+          <span>Save</span>
+        </button>
+        {{/if}}
+        <button type="button" class="control-btn load-queue-btn" title="Load saved queue">
+          <i class="fas fa-folder-open"></i>
+          <span>Load</span>
+        </button>
+        {{#if hasQueue}}
+        <button type="button" class="control-btn danger-btn clear-queue-btn" title="Clear entire queue">
+          <i class="fas fa-trash"></i>
+          <span>Clear</span>
+        </button>
+        {{/if}}
+      </div>
       {{/if}}
     </div>
   </div>

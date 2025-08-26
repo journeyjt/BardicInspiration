@@ -82,11 +82,21 @@ export interface PlayerState {
   heartbeatFrequency: number;
 }
 
+export interface SavedQueue {
+  id: string;
+  name: string;
+  items: VideoItem[];
+  createdBy: string;
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface QueueState {
   items: VideoItem[];
   currentIndex: number;
   mode: 'single-dj' | 'collaborative';
   djUserId: string | null;
+  savedQueues: SavedQueue[];
 }
 
 export interface UIState {
@@ -148,7 +158,8 @@ export function createDefaultQueueState(): QueueState {
     items: [],
     currentIndex: -1,
     mode: 'single-dj',
-    djUserId: null
+    djUserId: null,
+    savedQueues: []
   };
 }
 

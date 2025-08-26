@@ -11,6 +11,7 @@ import { SocketManager } from './services/SocketManager.js';
 import { SessionManager } from './services/SessionManager.js';
 import { PlayerManager } from './services/PlayerManager.js';
 import { QueueManager } from './services/QueueManager.js';
+import { SavedQueuesManager } from './services/SavedQueuesManager.js';
 import { UIHelper } from './ui/UIHelper.js';
 import { logger } from './lib/logger.js';
 import './styles/main.css';
@@ -93,8 +94,19 @@ Hooks.once('init', () => {
       items: [],
       currentIndex: -1,
       mode: 'single-dj',
-      djUserId: null
+      djUserId: null,
+      savedQueues: []
     }
+  });
+
+  // Saved queues setting
+  game.settings.register('core', 'youtubeDJ.savedQueues', {
+    name: 'YouTube DJ Saved Queues',
+    hint: 'Saved queue templates that can be loaded',
+    scope: 'world',
+    config: false,
+    type: Array,
+    default: []
   });
 
   // Group Mode setting - visible in module settings
@@ -177,11 +189,16 @@ Hooks.once('ready', async () => {
   const queueManager = new QueueManager(store);
   logger.info('YouTube DJ QueueManager initialized globally');
   
+  // Initialize global SavedQueuesManager for saved queue operations
+  const savedQueuesManager = new SavedQueuesManager(store, queueManager);
+  logger.info('YouTube DJ SavedQueuesManager initialized globally');
+  
   // Store global references for access across components
   (globalThis as any).youtubeDJSocketManager = socketManager;
   (globalThis as any).youtubeDJSessionManager = sessionManager;
   (globalThis as any).youtubeDJPlayerManager = playerManager;
   (globalThis as any).youtubeDJQueueManager = queueManager;
+  (globalThis as any).youtubeDJSavedQueuesManager = savedQueuesManager;
   
   // Initialize YouTube player widget above player list
   try {

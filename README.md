@@ -25,6 +25,8 @@ A synchronized YouTube music player module for FoundryVTT that lets Game Masters
 - Remove videos from queue
 - Automatic loop - restarts from beginning when queue ends
 - Queue persists across sessions
+- **Save & Load Queues**: DJs can save the current queue with a custom name and load saved queues later
+- **Export/Import**: Share queue configurations between games or GMs
 
 ## Installation
 
@@ -93,6 +95,28 @@ A synchronized YouTube music player module for FoundryVTT that lets Game Masters
 - **Remove Videos**:
   - Click the **✕** button next to any video to remove it from the queue
 
+- **Save Current Queue**:
+  - Click **"Save Queue"** button
+  - Enter a unique name for your queue
+  - The queue will be saved and can be loaded later
+  
+- **Load Saved Queue**:
+  - Click **"Load Queue"** button  
+  - Select from your saved queues
+  - Choose to replace the current queue or append to it
+  - Note: Loading a queue does not automatically start playback - you must press play
+  
+- **Manage Saved Queues**:
+  - View all saved queues with creation date and song count
+  - Rename saved queues to better organize them
+  - Delete queues you no longer need
+  - Export queues to share with other GMs
+  - Import queues from other games
+
+- **Clear Queue**:
+  - Click **"Clear All"** to remove all videos
+  - You'll be prompted to save the current queue before clearing
+
 #### Playback Controls
 - **Play/Pause**: Toggle playback for all connected users
 - **Next**: Skip to the next video in the queue
@@ -122,9 +146,11 @@ A synchronized YouTube music player module for FoundryVTT that lets Game Masters
 
 - **Stable Connection**: Ensure all players have a stable internet connection for synchronized playback
 - **Prepare Playlists**: Add multiple videos to the queue before starting for uninterrupted music
+- **Save Your Playlists**: Save frequently-used queues for quick loading in future sessions
 - **Volume Balance**: Start with lower volume and adjust up to avoid startling players
 - **Session Persistence**: The queue and current playback position persist between sessions
 - **Late Joiners**: Players who join mid-session automatically sync to current playback
+- **Audio Settings Preserved**: Loading a saved queue won't change users' volume or mute settings
 
 ### Troubleshooting
 

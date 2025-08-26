@@ -4,8 +4,9 @@
   "description": "Synchronized YouTube DJ for Foundry VTT - Play YouTube videos in sync across all players",
   "version": "1.0.1",
   "compatibility": {
-    "minimum": "13.347",
-    "verified": "13.347"
+    "minimum": "12",
+    "verified": "13",
+    "maximum": "13"
   },
   "authors": [
     {

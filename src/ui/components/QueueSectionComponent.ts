@@ -353,22 +353,34 @@ export class QueueSectionComponent extends BaseComponent {
     try {
       logger.debug('🎵 YouTube DJ | Clear queue button clicked');
       
-      const confirmed = await UIHelper.confirmDialog(
-        'Clear Queue',
-        'Are you sure you want to clear the entire queue?',
-        { 
-          defaultYes: false,
-          type: 'warning',
-          icon: 'fas fa-trash',
-          yesLabel: 'Clear Queue',
-          noLabel: 'Cancel'
+      // Check if queue has items to save
+      const currentQueue = this.store.getQueueState();
+      const hasItems = currentQueue.items.length > 0;
+      
+      // Import and show the ClearQueueDialog
+      const { ClearQueueDialog } = await import('../ClearQueueDialog.js');
+      const dialogResult = await ClearQueueDialog.show(hasItems);
+      
+      if (!dialogResult.confirmed) {
+        logger.debug('🎵 YouTube DJ | Clear queue cancelled');
+        return;
+      }
+      
+      // Save queue if requested
+      if (dialogResult.saveQueue && dialogResult.queueName) {
+        try {
+          const savedQueuesManager = (globalThis as any).youtubeDJSavedQueuesManager;
+          if (savedQueuesManager) {
+            await savedQueuesManager.saveCurrentQueue({ name: dialogResult.queueName });
+            ui.notifications?.success(`Queue saved as "${dialogResult.queueName}"`);
+          }
+        } catch (error) {
+          logger.error('🎵 YouTube DJ | Failed to save queue before clearing:', error);
+          ui.notifications?.error('Failed to save queue, but proceeding with clear');
         }
-      );
+      }
 
-      logger.debug('🎵 YouTube DJ | Clear queue confirmation result:', confirmed);
-
-      if (!confirmed) return;
-
+      // Clear the queue
       try {
         await this.queueManager.clearQueue();
         ui.notifications?.success('Queue cleared');
@@ -379,6 +391,78 @@ export class QueueSectionComponent extends BaseComponent {
     } catch (error) {
       logger.error('🎵 YouTube DJ | Error in onClearQueueClick:', error);
       ui.notifications?.error('Failed to show confirmation dialog');
+    }
+  }
+
+  /**
+   * Handle save queue button click
+   */
+  async onSaveQueueClick(): Promise<void> {
+    if (!this.store.isDJ()) {
+      ui.notifications?.warn('Only the DJ can save queues');
+      return;
+    }
+
+    const currentQueue = this.store.getQueueState();
+    if (currentQueue.items.length === 0) {
+      ui.notifications?.warn('Cannot save an empty queue');
+      return;
+    }
+
+    // Import and show the SaveQueueDialog
+    const { SaveQueueDialog } = await import('../SaveQueueDialog.js');
+    const result = await SaveQueueDialog.show();
+    
+    if (!result.confirmed || !result.queueName) return;
+
+    try {
+      const savedQueuesManager = (globalThis as any).youtubeDJSavedQueuesManager;
+      if (savedQueuesManager) {
+        await savedQueuesManager.saveCurrentQueue({ name: result.queueName });
+      } else {
+        ui.notifications?.error('Saved queues manager not initialized');
+      }
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to save queue:', error);
+      ui.notifications?.error('Failed to save queue');
+    }
+  }
+
+  /**
+   * Handle load queue button click
+   */
+  async onLoadQueueClick(): Promise<void> {
+    if (!this.store.isDJ()) {
+      ui.notifications?.warn('Only the DJ can load queues');
+      return;
+    }
+
+    const savedQueuesManager = (globalThis as any).youtubeDJSavedQueuesManager;
+    if (!savedQueuesManager) {
+      ui.notifications?.error('Saved queues manager not initialized');
+      return;
+    }
+
+    const savedQueues = savedQueuesManager.getSavedQueues();
+    if (savedQueues.length === 0) {
+      ui.notifications?.info('No saved queues found');
+      return;
+    }
+
+    // Import and show the LoadQueueDialog
+    const { LoadQueueDialog } = await import('../LoadQueueDialog.js');
+    const result = await LoadQueueDialog.show(savedQueues);
+    
+    if (!result || !result.confirmed) return;
+
+    try {
+      await savedQueuesManager.loadSavedQueue({
+        queueId: result.queueId,
+        replace: result.replace
+      });
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to load queue:', error);
+      ui.notifications?.error('Failed to load queue');
     }
   }
 
