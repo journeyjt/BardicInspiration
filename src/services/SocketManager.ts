@@ -197,6 +197,13 @@ export class SocketManager {
     this.registerHandler('QUEUE_UPDATE', new QueueUpdateHandler(this.store));
     this.registerHandler('QUEUE_NEXT', new QueueNextHandler(this.store));
     this.registerHandler('QUEUE_CLEAR', new QueueClearHandler(this.store));
+    
+    // Saved queue handlers
+    this.registerHandler('QUEUE_SAVED', new QueueSavedHandler(this.store));
+    this.registerHandler('QUEUE_LOADED', new QueueLoadedHandler(this.store));
+    this.registerHandler('QUEUE_DELETED', new QueueDeletedHandler(this.store));
+    this.registerHandler('QUEUE_RENAMED', new QueueRenamedHandler(this.store));
+    this.registerHandler('QUEUE_SYNC', new QueueSyncHandler(this.store));
 
     logger.debug('🎵 YouTube DJ | Default message handlers registered');
   }
@@ -621,6 +628,7 @@ class LoadHandler implements MessageHandler {
       videoId: message.data?.videoId,
       startTime: message.data?.startTime || 0,
       videoInfo: message.data?.videoInfo,
+      autoPlay: message.data?.autoPlay !== false, // Default to true for backward compatibility
       timestamp: message.timestamp
     });
   }
@@ -801,6 +809,112 @@ class QueueClearHandler implements MessageHandler {
 
     // Emit event for QueueManager to handle
     Hooks.callAll('youtubeDJ.queueClear', {
+      timestamp: message.timestamp,
+      userId: message.userId
+    });
+  }
+}
+
+// ===== Saved Queue Handlers =====
+
+class QueueSavedHandler implements MessageHandler {
+  constructor(private store: SessionStore) {}
+
+  handle(message: YouTubeDJMessage): void {
+    logger.debug('🎵 YouTube DJ | Queue saved by DJ:', message.data?.savedQueue?.name);
+
+    // Emit event for SavedQueuesManager to handle
+    Hooks.callAll('youtubeDJ.saveQueue', {
+      savedQueue: message.data?.savedQueue,
+      isOverwrite: message.data?.isOverwrite,
+      timestamp: message.timestamp,
+      userId: message.userId
+    });
+  }
+}
+
+class QueueLoadedHandler implements MessageHandler {
+  constructor(private store: SessionStore) {}
+
+  handle(message: YouTubeDJMessage): void {
+    logger.debug('🎵 YouTube DJ | Queue loaded by DJ:', message.data?.queueName);
+
+    // Emit event for SavedQueuesManager to handle
+    Hooks.callAll('youtubeDJ.loadQueue', {
+      queueName: message.data?.queueName,
+      queueId: message.data?.queueId,
+      itemCount: message.data?.itemCount,
+      replace: message.data?.replace,
+      timestamp: message.timestamp,
+      userId: message.userId
+    });
+  }
+}
+
+class QueueSyncHandler implements MessageHandler {
+  constructor(private store: SessionStore) {}
+
+  handle(message: YouTubeDJMessage): void {
+    // Only process if not from self
+    if (message.userId === game.user?.id) {
+      return;
+    }
+
+    logger.debug('🎵 YouTube DJ | Queue sync from DJ, updating local queue');
+
+    const items = message.data?.items || [];
+    const currentIndex = message.data?.currentIndex ?? -1;
+    const replace = message.data?.replace ?? true;
+
+    const currentQueue = this.store.getQueueState();
+    
+    // Update the queue state with the synced data
+    this.store.updateState({
+      queue: {
+        ...currentQueue,
+        items: items,
+        currentIndex: currentIndex
+      }
+    });
+
+    logger.info('🎵 YouTube DJ | Queue synced from DJ:', {
+      itemCount: items.length,
+      currentIndex,
+      replace
+    });
+  }
+}
+
+class QueueDeletedHandler implements MessageHandler {
+  constructor(private store: SessionStore) {}
+
+  handle(message: YouTubeDJMessage): void {
+    logger.debug('🎵 YouTube DJ | Queue deleted by DJ:', message.data?.queueName);
+
+    // Emit event for SavedQueuesManager to handle
+    Hooks.callAll('youtubeDJ.deleteQueue', {
+      queueName: message.data?.queueName,
+      queueId: message.data?.queueId,
+      timestamp: message.timestamp,
+      userId: message.userId
+    });
+  }
+}
+
+class QueueRenamedHandler implements MessageHandler {
+  constructor(private store: SessionStore) {}
+
+  handle(message: YouTubeDJMessage): void {
+    logger.debug('🎵 YouTube DJ | Queue renamed by DJ:', {
+      from: message.data?.oldName,
+      to: message.data?.newName
+    });
+
+    // Emit event for SavedQueuesManager to handle
+    Hooks.callAll('youtubeDJ.renameQueue', {
+      queueId: message.data?.queueId,
+      oldName: message.data?.oldName,
+      newName: message.data?.newName,
       timestamp: message.timestamp,
       userId: message.userId
     });

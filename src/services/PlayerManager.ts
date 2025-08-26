@@ -27,6 +27,9 @@ export class PlayerManager {
     // Listen for video load requests from QueueManager
     Hooks.on('youtubeDJ.loadVideo', this.onLoadVideoRequest.bind(this));
     
+    // Listen for video cue requests (load without auto-play)
+    Hooks.on('youtubeDJ.cueVideo', this.onCueVideoRequest.bind(this));
+    
     // Listen for heartbeat synchronization
     Hooks.on('youtubeDJ.heartbeat', this.onHeartbeatReceived.bind(this));
     
@@ -219,12 +222,12 @@ export class PlayerManager {
         Hooks.callAll('youtubeDJ.playerCommand', { command: 'cueVideoById', args: [videoId, startTime] });
       }
 
-      // Broadcast load command
+      // Broadcast load command with autoPlay flag
       this.broadcastMessage({
         type: 'LOAD',
         userId: game.user?.id || '',
         timestamp: Date.now(),
-        data: { videoId, startTime, videoInfo }
+        data: { videoId, startTime, videoInfo, autoPlay }
       });
 
       logger.info('🎵 YouTube DJ | Video loaded successfully:', videoInfo.title);
@@ -561,6 +564,27 @@ export class PlayerManager {
   }
 
   /**
+   * Handle cue video request (load without auto-play)
+   * This is used when loading saved queues to preserve user's playback/audio state
+   */
+  private async onCueVideoRequest(data: { videoId: string; videoInfo: VideoInfo; autoPlay?: boolean }): Promise<void> {
+    if (!this.store.isDJ()) {
+      logger.debug('🎵 YouTube DJ | Ignoring cue request - not DJ');
+      return;
+    }
+
+    logger.debug('🎵 YouTube DJ | Cueing video from saved queue:', data.videoInfo.title);
+    
+    try {
+      // Load video with autoPlay explicitly set to false
+      // This preserves the user's current mute/volume settings
+      await this.loadVideo(data.videoId, 0, false);
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to cue video from saved queue:', error);
+    }
+  }
+
+  /**
    * Handle heartbeat received from DJ
    */
   private async onHeartbeatReceived(data: { heartbeat: HeartbeatData; timestamp: number }): Promise<void> {
@@ -747,7 +771,7 @@ export class PlayerManager {
   /**
    * Handle load command from DJ
    */
-  private async onLoadCommand(data: { videoId: string; startTime: number; videoInfo: any; timestamp: number }): Promise<void> {
+  private async onLoadCommand(data: { videoId: string; startTime: number; videoInfo: any; autoPlay?: boolean; timestamp: number }): Promise<void> {
     if (this.store.isDJ()) {
       // DJ doesn't need to respond to their own commands
       return;
@@ -768,10 +792,17 @@ export class PlayerManager {
         }
       });
 
-      // Send command to widget player
+      // Send command to widget player - respect autoPlay flag
+      const command = data.autoPlay !== false ? 'loadVideoById' : 'cueVideoById';
       Hooks.callAll('youtubeDJ.playerCommand', { 
-        command: 'loadVideoById', 
+        command: command, 
         args: [data.videoId, data.startTime || 0] 
+      });
+      
+      logger.debug('🎵 YouTube DJ | Synced video command:', { 
+        command, 
+        videoId: data.videoId,
+        autoPlay: data.autoPlay 
       });
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to sync load command:', error);
@@ -802,6 +833,7 @@ export class PlayerManager {
     this.stopHeartbeat();
     Hooks.off('youtubeDJ.stateChanged', this.onStateChanged.bind(this));
     Hooks.off('youtubeDJ.loadVideo', this.onLoadVideoRequest.bind(this));
+    Hooks.off('youtubeDJ.cueVideo', this.onCueVideoRequest.bind(this));
     Hooks.off('youtubeDJ.heartbeat', this.onHeartbeatReceived.bind(this));
     Hooks.off('youtubeDJ.playCommand', this.onPlayCommand.bind(this));
     Hooks.off('youtubeDJ.pauseCommand', this.onPauseCommand.bind(this));

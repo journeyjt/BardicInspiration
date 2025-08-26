@@ -212,6 +212,8 @@ export class YouTubeDJApp extends foundry.applications.api.HandlebarsApplication
     this.addEventDelegation('.move-down-btn', 'click', (e) => this.queueSectionComponent.onMoveDownClick(e));
     this.addEventDelegation('.skip-to-btn', 'click', (e) => this.queueSectionComponent.onSkipToClick(e));
     this.addEventDelegation('.clear-queue-btn', 'click', () => this.queueSectionComponent.onClearQueueClick());
+    this.addEventDelegation('.save-queue-btn', 'click', () => this.queueSectionComponent.onSaveQueueClick());
+    this.addEventDelegation('.load-queue-btn', 'click', () => this.queueSectionComponent.onLoadQueueClick());
     this.addEventDelegation('.youtube-url-input', 'keypress', (e) => this.queueSectionComponent.onUrlInputKeypress(e as KeyboardEvent));
     
     // Integrated playbook controls in queue section

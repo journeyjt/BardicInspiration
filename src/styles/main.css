@@ -1098,6 +1098,183 @@
   box-shadow: var(--bardic-inspiration-shadow-sm);
 }
 
+/* Save and Load Queue Buttons */
+.save-queue-btn,
+.load-queue-btn {
+  background: var(--bardic-inspiration-primary);
+  color: white;
+  border: none;
+  padding: 0.375rem 0.75rem;
+  border-radius: var(--bardic-inspiration-radius);
+  cursor: pointer;
+  font-size: 0.8125rem;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+
+.save-queue-btn:hover,
+.load-queue-btn:hover {
+  background: var(--bardic-inspiration-primary-hover);
+  transform: translateY(-1px);
+  box-shadow: var(--bardic-inspiration-shadow-sm);
+}
+
+.queue-actions {
+  display: inline-flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin-left: 1rem;
+}
+
+/* Queue Dialog Styles - DialogV2 */
+.dialog-v2.bardic-dialog {
+  background: var(--bardic-inspiration-bg-dark);
+  border: 1px solid var(--bardic-inspiration-border);
+}
+
+.dialog-v2.bardic-dialog .window-header {
+  background: var(--bardic-inspiration-bg);
+  border-bottom: 1px solid var(--bardic-inspiration-border);
+}
+
+.dialog-v2.bardic-dialog .window-title {
+  color: var(--bardic-inspiration-text);
+  font-weight: 600;
+}
+
+.bardic-save-queue-dialog,
+.bardic-load-queue-dialog,
+.bardic-clear-queue-dialog {
+  padding: var(--bardic-inspiration-space);
+}
+
+.bardic-save-queue-dialog .form-group,
+.bardic-load-queue-dialog .form-group,
+.bardic-clear-queue-dialog .form-group {
+  margin-bottom: var(--bardic-inspiration-space-lg);
+}
+
+.bardic-save-queue-dialog .form-group:last-child,
+.bardic-load-queue-dialog .form-group:last-child,
+.bardic-clear-queue-dialog .form-group:last-child {
+  margin-bottom: 0;
+}
+
+.bardic-save-queue-dialog label,
+.bardic-load-queue-dialog label,
+.bardic-clear-queue-dialog label {
+  display: flex;
+  align-items: center;
+  gap: var(--bardic-inspiration-space-xs);
+  color: var(--bardic-inspiration-text);
+  font-weight: 500;
+  margin-bottom: var(--bardic-inspiration-space-xs);
+}
+
+.bardic-input,
+.bardic-select {
+  width: 100%;
+  padding: var(--bardic-inspiration-space-sm) var(--bardic-inspiration-space);
+  border: 1px solid var(--bardic-inspiration-border);
+  border-radius: var(--bardic-inspiration-radius);
+  background: var(--bardic-inspiration-bg);
+  color: var(--bardic-inspiration-text);
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+}
+
+.bardic-input:focus,
+.bardic-select:focus {
+  outline: none;
+  border-color: var(--bardic-inspiration-primary);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+}
+
+.bardic-clear-queue-dialog .warning-message,
+.bardic-clear-queue-dialog .info-message {
+  display: flex;
+  align-items: center;
+  gap: var(--bardic-inspiration-space);
+  padding: var(--bardic-inspiration-space);
+  border-radius: var(--bardic-inspiration-radius);
+  font-size: 0.9375rem;
+}
+
+.bardic-clear-queue-dialog .warning-message {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--bardic-inspiration-warning);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.bardic-clear-queue-dialog .info-message {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--bardic-inspiration-primary);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.bardic-clear-queue-dialog .warning-message i,
+.bardic-clear-queue-dialog .info-message i {
+  font-size: 1.25rem;
+}
+
+.checkbox-label,
+.radio-label {
+  display: flex;
+  align-items: center;
+  gap: var(--bardic-inspiration-space-sm);
+  cursor: pointer;
+  padding: var(--bardic-inspiration-space-xs) 0;
+  color: var(--bardic-inspiration-text);
+  font-weight: normal;
+  margin-bottom: 0 !important;
+}
+
+.checkbox-label:hover,
+.radio-label:hover {
+  color: var(--bardic-inspiration-primary);
+}
+
+.checkbox-label input[type="checkbox"],
+.radio-label input[type="radio"] {
+  margin: 0;
+  cursor: pointer;
+}
+
+.checkbox-label span,
+.radio-label span {
+  display: flex;
+  align-items: center;
+  gap: var(--bardic-inspiration-space-xs);
+}
+
+.queue-name-group {
+  padding: var(--bardic-inspiration-space);
+  background: var(--bardic-inspiration-bg-muted);
+  border-radius: var(--bardic-inspiration-radius);
+  border: 1px solid var(--bardic-inspiration-border);
+  margin-top: var(--bardic-inspiration-space);
+}
+
+.bardic-load-queue-dialog .queue-actions {
+  margin-top: var(--bardic-inspiration-space-lg);
+  padding-top: var(--bardic-inspiration-space-lg);
+  border-top: 1px solid var(--bardic-inspiration-border);
+}
+
+.bardic-load-queue-dialog .delete-queue-btn {
+  width: 100%;
+  justify-content: center;
+}
+
+.notes {
+  font-size: 0.8125rem;
+  color: var(--bardic-inspiration-text-muted);
+  margin-top: var(--bardic-inspiration-space-xs);
+  font-style: italic;
+}
+
 /* Pulse animation for now playing indicator */
 @keyframes pulse {
   0%, 100% {
