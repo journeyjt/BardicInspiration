@@ -6,13 +6,20 @@
 import { SessionStore } from '../state/SessionStore.js';
 import { SessionMember, DJRequest, StateChangeEvent, HEARTBEAT_ACTIVITY_CONFIG } from '../state/StateTypes.js';
 import { logger } from '../lib/logger.js';
-
-export interface YouTubeDJMessage {
-  type: string;
-  userId: string;
-  timestamp: number;
-  data?: any;
-}
+import type { 
+  DJClaimMessage, 
+  DJReleaseMessage, 
+  DJRequestMessage, 
+  DJHandoffMessage,
+  DJApproveMessage,
+  DJDenyMessage,
+  GMOverrideMessage,
+  MemberCleanupMessage,
+  StateRequestMessage,
+  StateResponseMessage,
+  SocketMessageFactory 
+} from '../types/SocketMessages.js';
+import { TypedHooks } from '../types/HookEvents.js';
 
 export class SessionManager {
   private store: SessionStore;
@@ -75,11 +82,15 @@ export class SessionManager {
     });
 
     // Broadcast DJ claim
-    this.broadcastMessage({
+    const message: DJClaimMessage = {
       type: 'DJ_CLAIM',
       userId: userId,
-      timestamp: Date.now()
-    });
+      timestamp: Date.now(),
+      data: {
+        userName: game.user?.name || 'Unknown User'
+      }
+    };
+    this.broadcastMessage(message);
 
     logger.info('🎵 YouTube DJ | Successfully claimed DJ role');
   }
@@ -559,7 +570,7 @@ export class SessionManager {
   /**
    * Broadcast message via socket
    */
-  private broadcastMessage(message: YouTubeDJMessage): void {
+  private broadcastMessage(message: DJClaimMessage | DJReleaseMessage | DJRequestMessage | DJHandoffMessage | DJApproveMessage | DJDenyMessage | GMOverrideMessage | MemberCleanupMessage | StateRequestMessage | StateResponseMessage): void {
     // This will be handled by SocketManager in next step
     // For now, use direct socket communication
     game.socket?.emit('module.bardic-inspiration', message);
