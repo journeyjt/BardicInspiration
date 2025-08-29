@@ -1,0 +1,547 @@
+# Bardic Inspiration Architecture Diagrams
+
+## 1. System Initialization Flow
+
+```mermaid
+flowchart TD
+    Start([FoundryVTT Start]) --> InitHook[Hooks.once 'init']
+    
+    InitHook --> RegHelpers[Register Handlebars Helpers]
+    InitHook --> InitStore[SessionStore getInstance initialize]
+    InitHook --> RegSettings[Register World Settings]
+    InitHook --> RegAPI[Register Module API]
+    
+    RegSettings --> S1[youtubeDJ.sessionState]
+    RegSettings --> S2[youtubeDJ.currentDJ]
+    RegSettings --> S3[youtubeDJ.sessionMembers]
+    RegSettings --> S4[youtubeDJ.queueState]
+    
+    RegAPI --> ReadyHook[Hooks once ready]
+    
+    ReadyHook --> LoadState[SessionStore loadFromWorld]
+    LoadState --> InitServices[Initialize Global Services]
+    
+    InitServices --> SM[SocketManager initialize]
+    InitServices --> SesM[SessionManager]
+    InitServices --> PM[PlayerManager]
+    InitServices --> QM[QueueManager]
+    
+    InitServices --> StoreGlobal[Store in globalThis]
+    StoreGlobal --> G1[youtubeDJSocketManager]
+    StoreGlobal --> G2[youtubeDJSessionManager]
+    StoreGlobal --> G3[youtubeDJPlayerManager]
+    StoreGlobal --> G4[youtubeDJQueueManager]
+    
+    StoreGlobal --> InitWidget[YouTubePlayerWidget initialize]
+    InitWidget --> WidgetReady([System Ready])
+```
+
+## 2. Service Layer Architecture
+
+```mermaid
+graph TB
+    subgraph "Global Services (main.ts)"
+        Store[SessionStore<br/>Singleton]
+        SM[SocketManager]
+        SesM[SessionManager]
+        PM[PlayerManager]
+        QM[QueueManager]
+    end
+    
+    subgraph "UI Layer"
+        App[YouTubeDJApp]
+        Widget[YouTubePlayerWidget<br/>Singleton]
+    end
+    
+    subgraph "Components"
+        SC[SessionControlsComponent]
+        QC[QueueSectionComponent]
+        PC[PlayerControlsComponent]
+        SB[SeekBarComponent]
+        NP[NowPlayingComponent]
+    end
+    
+    Store -.->|state| SM
+    Store -.->|state| SesM
+    Store -.->|state| PM
+    Store -.->|state| QM
+    
+    App -->|references| SM
+    App -->|references| SesM
+    App -->|references| PM
+    App -->|references| QM
+    
+    App -->|contains| SC
+    App -->|contains| QC
+    App -->|contains| PC
+    App -->|contains| NP
+    PC -->|contains| SB
+    
+    SC -->|uses| SesM
+    QC -->|uses| QM
+    PC -->|uses| PM
+    SB -->|uses| PM
+    
+    Widget -.->|isolated| Store
+```
+
+## 3. Hook-Based Communication Flow
+
+```mermaid
+graph LR
+    subgraph "State Management"
+        Store[SessionStore] -->|emits| StateChanged[youtubeDJ.stateChanged]
+    end
+    
+    subgraph "Service Layer Hooks"
+        StateChanged --> SesM[SessionManager]
+        StateChanged --> PM[PlayerManager]
+        StateChanged --> QM[QueueManager]
+        StateChanged --> Widget[YouTubePlayerWidget]
+        StateChanged --> Components[UI Components]
+    end
+    
+    subgraph "Player Command Flow"
+        PM -->|emits| PlayerCmd[youtubeDJ.playerCommand]
+        PlayerCmd --> Widget
+        Widget -->|emits| VideoEnded[youtubeDJ.videoEnded]
+        VideoEnded --> QM
+        QM -->|emits| LoadVideo[youtubeDJ.loadVideo]
+        LoadVideo --> PM
+    end
+    
+    subgraph "Socket Message Hooks"
+        SM[SocketManager] -->|emits| UserJoined[youtubeDJ.userJoined]
+        SM -->|emits| DJClaim[youtubeDJ.djClaimReceived]
+        SM -->|emits| QueueAdd[youtubeDJ.queueAdd]
+        SM -->|emits| Heartbeat[youtubeDJ.heartbeat]
+        
+        UserJoined --> SesM
+        DJClaim --> SesM
+        QueueAdd --> QM
+        Heartbeat --> PM
+    end
+```
+
+## 4. Socket Message Flow
+
+```mermaid
+sequenceDiagram
+    participant DJ as DJ User
+    participant DJApp as DJ App
+    participant DJSocket as DJ SocketManager
+    participant Socket as SocketIO
+    participant ListenerSocket as Listener SocketManager
+    participant ListenerApp as Listener App
+    participant Listener as Listener User
+    
+    DJ->>DJApp: Click Play Button
+    DJApp->>DJSocket: sendMessage(PLAY)
+    DJSocket->>Socket: emit('module.bardic-inspiration')
+    Socket->>ListenerSocket: broadcast
+    ListenerSocket->>ListenerSocket: PlayHandler.handle()
+    ListenerSocket->>ListenerApp: Hooks.callAll('youtubeDJ.playCommand')
+    ListenerApp->>Listener: Update UI/Player
+    
+    Note over Socket: All socket messages follow this pattern
+```
+
+## 5. Component Hierarchy & Data Flow
+
+```mermaid
+graph TD
+    subgraph "Application Layer"
+        App[YouTubeDJApp<br/>ApplicationV2]
+    end
+    
+    subgraph "Session Controls"
+        SC[SessionControlsComponent]
+        SC --> ClaimDJ[Claim DJ Button]
+        SC --> ReleaseDJ[Release DJ Button]
+        SC --> RequestDJ[Request DJ Button]
+        SC --> MemberList[Member List Display]
+        SC --> RequestList[DJ Request Queue]
+    end
+    
+    subgraph "Queue Controls"
+        QC[QueueSectionComponent]
+        QC --> AddVideo[Add Video Input]
+        QC --> QueueList[Queue List Display]
+        QC --> QueueItem[Queue Item Controls]
+        QueueItem --> Remove[Remove]
+        QueueItem --> MoveUp[Move Up]
+        QueueItem --> MoveDown[Move Down]
+    end
+    
+    subgraph "Player Controls"
+        PC[PlayerControlsComponent]
+        PC --> PlayPause[Play/Pause]
+        PC --> NextPrev[Next/Previous]
+        PC --> SeekBar[SeekBarComponent]
+        SeekBar --> TimeDisplay[Time Display]
+        SeekBar --> SeekSlider[Seek Slider]
+    end
+    
+    subgraph "Now Playing"
+        NP[NowPlayingComponent]
+        NP --> VideoTitle[Video Title]
+        NP --> VideoThumbnail[Thumbnail]
+        NP --> PlayerStatus[Status Indicator]
+    end
+    
+    App --> SC
+    App --> QC
+    App --> PC
+    App --> NP
+    
+    subgraph "Widget (Isolated)"
+        Widget[YouTubePlayerWidget]
+        Widget --> JoinLeave[Join/Leave Session]
+        Widget --> Volume[Volume Control]
+        Widget --> YouTubePlayer[YouTube IFrame]
+    end
+```
+
+## 6. State Update Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> UserAction: User Interaction
+    
+    UserAction --> CheckPermission: Component Event Handler
+    
+    CheckPermission --> DJAction: Is DJ?
+    CheckPermission --> ListenerAction: Not DJ
+    
+    DJAction --> ServiceMethod: Call Service Method
+    ServiceMethod --> UpdateLocalState: SessionStore updateState
+    UpdateLocalState --> EmitHook: Emit stateChanged Hook
+    UpdateLocalState --> SendSocket: Send Socket Message
+    
+    SendSocket --> RemoteSocketManager: Via SocketIO
+    RemoteSocketManager --> MessageHandler: Process Message
+    MessageHandler --> RemoteHook: Emit Hook
+    RemoteHook --> RemoteService: Update Service
+    RemoteService --> RemoteStateUpdate: Update Remote State
+    RemoteStateUpdate --> RemoteUIUpdate: Update Remote UI
+    
+    EmitHook --> LocalUIUpdate: Update Local UI
+    
+    ListenerAction --> ShowError: Display Permission Error
+    
+    LocalUIUpdate --> [*]
+    RemoteUIUpdate --> [*]
+    ShowError --> [*]
+```
+
+## 7. Queue Management Flow
+
+```mermaid
+flowchart LR
+    subgraph "DJ Actions"
+        AddVideo[Add Video] --> ValidateURL[Validate YouTube URL]
+        ValidateURL --> FetchInfo[Fetch Video Info]
+        FetchInfo --> AddToQueue[Add to Queue State]
+        
+        RemoveVideo[Remove Video] --> UpdateQueue[Update Queue State]
+        ReorderQueue[Reorder Queue] --> UpdateQueue
+        
+        NextVideo[Next Video] --> CheckQueue{Has Next?}
+        CheckQueue -->|Yes| UpdateIndex[Update Current Index]
+        CheckQueue -->|No| LoopToStart[Loop to Start]
+        UpdateIndex --> LoadNewVideo[Load Video]
+        LoopToStart --> LoadNewVideo
+    end
+    
+    subgraph "State & Sync"
+        AddToQueue --> BroadcastAdd[Broadcast QUEUE_ADD]
+        UpdateQueue --> BroadcastUpdate[Broadcast QUEUE_UPDATE]
+        LoadNewVideo --> BroadcastNext[Broadcast QUEUE_NEXT]
+        
+        BroadcastAdd --> ListenerReceive[Listener Receives]
+        BroadcastUpdate --> ListenerReceive
+        BroadcastNext --> ListenerReceive
+        
+        ListenerReceive --> UpdateListenerState[Update Listener State]
+        UpdateListenerState --> UpdateListenerUI[Update Listener UI]
+    end
+```
+
+## 8. Player Synchronization Flow
+
+```mermaid
+sequenceDiagram
+    participant DJ as DJ
+    participant DJPlayer as DJ Player
+    participant DJPManager as DJ PlayerManager
+    participant Socket as Socket System
+    participant LPManager as Listener PlayerManager
+    participant LPlayer as Listener Player
+    participant Listener as Listener
+    
+    loop Every 2 seconds (if DJ)
+        DJPManager->>DJPlayer: Get Current Time
+        DJPlayer-->>DJPManager: time, videoId, state
+        DJPManager->>Socket: HEARTBEAT message
+        Socket->>LPManager: youtubeDJ.heartbeat
+        LPManager->>LPManager: Calculate drift
+        alt Drift > 1 second
+            LPManager->>LPlayer: Seek to sync time
+            LPlayer->>Listener: Update playback
+        else Drift <= 1 second
+            Note over LPManager: No action needed
+        end
+    end
+    
+    DJ->>DJPlayer: User seeks to time
+    DJPlayer->>DJPManager: Seek event
+    DJPManager->>Socket: SEEK message
+    Socket->>LPManager: youtubeDJ.seekCommand
+    LPManager->>LPlayer: Seek to time
+    LPlayer->>Listener: Update playback
+```
+
+## 9. Session Join/Leave Flow
+
+```mermaid
+flowchart TD
+    Start([User Opens FoundryVTT]) --> WidgetInit[Widget Initialized Above Player List]
+    
+    WidgetInit --> ShowJoin[Show 'Join Session' Button]
+    
+    ShowJoin --> ClickJoin{User Clicks Join?}
+    ClickJoin -->|Yes| JoinSession[Widget joinSession]
+    ClickJoin -->|No| RemainDisconnected[Remain Disconnected]
+    
+    JoinSession --> UpdateState[SessionStore updateState<br/>hasJoinedSession: true]
+    JoinSession --> SendJoin[Send USER_JOIN socket]
+    JoinSession --> ShowPlayer[Show YouTube Player]
+    JoinSession --> EnableControls[Enable Session Controls]
+    
+    SendJoin --> NotifyOthers[Notify Other Users]
+    NotifyOthers --> UpdateMemberList[Update Member Lists]
+    
+    EnableControls --> InSession[User In Session]
+    
+    InSession --> ClickLeave{User Clicks Leave?}
+    ClickLeave -->|Yes| LeaveSession[Widget leaveSession]
+    ClickLeave -->|No| InSession
+    
+    LeaveSession --> UpdateLeaveState[SessionStore updateState<br/>hasJoinedSession: false]
+    LeaveSession --> SendLeave[Send USER_LEAVE socket]
+    LeaveSession --> HidePlayer[Hide YouTube Player]
+    LeaveSession --> DisableControls[Disable Session Controls]
+    
+    SendLeave --> NotifyOthersLeave[Notify Other Users]
+    NotifyOthersLeave --> RemoveFromList[Remove from Member Lists]
+    
+    DisableControls --> ShowJoin
+```
+
+## 10. DJ Role Management Flow
+
+```mermaid
+stateDiagram-v2
+    [*] --> NoDJ: Initial State
+    
+    NoDJ --> ClaimDJ: User Claims DJ
+    NoDJ --> RequestDJ: User Requests DJ
+    
+    ClaimDJ --> HasDJ: Broadcast DJ_CLAIM
+    
+    RequestDJ --> PendingRequest: Add to Request Queue
+    PendingRequest --> NoDJ: DJ Denies
+    PendingRequest --> NoDJ: Request Timeout
+    
+    HasDJ --> ReleaseDJ: DJ Releases Role
+    HasDJ --> HandoffDJ: DJ Hands Off
+    HasDJ --> GMOverride: GM Takes Control
+    HasDJ --> ApproveRequest: DJ Approves Request
+    
+    ReleaseDJ --> NoDJ: Broadcast DJ_RELEASE
+    HandoffDJ --> HasDJ: Broadcast DJ_HANDOFF
+    GMOverride --> HasDJ: Broadcast GM_OVERRIDE
+    ApproveRequest --> HasDJ: Broadcast DJ_APPROVE
+    
+    HasDJ --> HasDJ: DJ Actions (Play, Pause, Queue, etc.)
+```
+
+## 11. Component Lifecycle & Rendering
+
+```mermaid
+flowchart TD
+    subgraph "Component Initialization"
+        AppRender[App._onRender] --> CreateComp[Create Component]
+        CreateComp --> Subscribe[Subscribe to State]
+        Subscribe --> InitRender[Initial Render]
+    end
+    
+    subgraph "State Change Flow"
+        StateChange[State Change] --> EmitHook[Emit stateChanged]
+        EmitHook --> CompListener[Component Listener]
+        CompListener --> CheckRelevant{Relevant Change?}
+        CheckRelevant -->|Yes| SaveScroll[Save Scroll Position]
+        CheckRelevant -->|No| NoRender[Skip Render]
+        SaveScroll --> RenderComp[Render Component]
+        RenderComp --> RestoreScroll[Restore Scroll]
+    end
+    
+    subgraph "Component Cleanup"
+        AppClose[App Close] --> Destroy[Component destroy]
+        Destroy --> Unsubscribe[Unsubscribe from State]
+        Destroy --> RemoveListeners[Remove Event Listeners]
+        Destroy --> CleanupDOM[Cleanup DOM]
+    end
+```
+
+## 12. Message Handler Architecture
+
+```mermaid
+classDiagram
+    class MessageHandler {
+        <<interface>>
+        +handle(message): void
+    }
+    
+    class SocketManager {
+        -handlers: Map
+        -store: SessionStore
+        +initialize(): void
+        +sendMessage(message): void
+        +registerHandler(type, handler): void
+    }
+    
+    class PlayHandler {
+        +handle(message): void
+    }
+    
+    class PauseHandler {
+        +handle(message): void
+    }
+    
+    class QueueAddHandler {
+        +handle(message): void
+    }
+    
+    class HeartbeatHandler {
+        +handle(message): void
+    }
+    
+    class DJClaimHandler {
+        +handle(message): void
+    }
+    
+    MessageHandler <|.. PlayHandler
+    MessageHandler <|.. PauseHandler
+    MessageHandler <|.. QueueAddHandler
+    MessageHandler <|.. HeartbeatHandler
+    MessageHandler <|.. DJClaimHandler
+    
+    SocketManager --> MessageHandler : uses
+    SocketManager --> PlayHandler : registers
+    SocketManager --> PauseHandler : registers
+    SocketManager --> QueueAddHandler : registers
+    SocketManager --> HeartbeatHandler : registers
+    SocketManager --> DJClaimHandler : registers
+```
+
+## 13. Activity Tracking & Cleanup
+
+```mermaid
+sequenceDiagram
+    participant DJ as DJ
+    participant DJSession as DJ SessionManager
+    participant Socket as Socket System
+    participant LSession as Listener SessionManager
+    participant Listener as Listener
+    
+    loop Every Heartbeat (2 seconds)
+        DJ->>Socket: HEARTBEAT
+        Socket->>Listener: Receive Heartbeat
+        Listener->>Socket: HEARTBEAT_RESPONSE
+        Socket->>DJSession: Collect Responses
+        
+        DJSession->>DJSession: Track Activity
+        Note over DJSession: Mark responding users as active
+        
+        DJSession->>DJSession: Check Inactive Users
+        alt User missed 3+ heartbeats
+            DJSession->>Socket: MEMBER_CLEANUP
+            Socket->>LSession: Remove Inactive User
+            LSession->>LSession: Update Member List
+        end
+    end
+```
+
+## 14. YouTube Widget Player Lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> WidgetCreated: Widget initialize
+    
+    WidgetCreated --> SessionDisconnected: Initial State
+    
+    SessionDisconnected --> ContainerVisible: User Joins Session
+    ContainerVisible --> LoadYouTubeAPI: Load YouTube IFrame API
+    LoadYouTubeAPI --> CreatePlayer: new YT Player
+    CreatePlayer --> PlayerReady: onReady Event
+    
+    PlayerReady --> Playing: Play Command
+    PlayerReady --> Paused: Initial State
+    
+    Playing --> Paused: Pause Command
+    Paused --> Playing: Play Command
+    
+    Playing --> VideoEnded: Video Completes
+    VideoEnded --> LoadNext: Queue Has Next
+    VideoEnded --> Stopped: Queue Empty
+    LoadNext --> Playing: Auto-play Next
+    
+    PlayerReady --> SessionLeft: User Leaves Session
+    Playing --> SessionLeft: User Leaves Session
+    Paused --> SessionLeft: User Leaves Session
+    
+    SessionLeft --> DestroyPlayer: Cleanup Player
+    DestroyPlayer --> SessionDisconnected: Reset State
+    
+    SessionDisconnected --> [*]: Widget Destroyed
+```
+
+## 15. Complete Action Flow Example: Adding Video to Queue
+
+```mermaid
+sequenceDiagram
+    participant User as DJ User
+    participant UI as QueueSectionComponent
+    participant QM as QueueManager
+    participant Store as SessionStore
+    participant Socket as SocketManager
+    participant Remote as Remote Users
+    
+    User->>UI: Paste YouTube URL
+    User->>UI: Click "Add to Queue"
+    UI->>UI: Validate Input
+    UI->>QM: addVideo(url, playNow)
+    
+    QM->>QM: extractVideoId(url)
+    QM->>QM: fetchVideoInfo(videoId)
+    Note over QM: Call YouTube oEmbed API
+    
+    QM->>Store: updateState({queue})
+    Store->>Store: Deep merge state
+    Store->>Store: Save to world settings
+    Store-->>UI: Emit stateChanged hook
+    UI->>UI: Re-render queue list
+    
+    QM->>Socket: sendMessage(QUEUE_ADD)
+    Socket->>Remote: Broadcast to all users
+    Remote->>Remote: QueueAddHandler processes
+    Remote->>Remote: Update local state
+    Remote->>Remote: Re-render UI
+    
+    alt Play Now is true
+        QM->>QM: skipToIndex(newIndex)
+        QM-->>PM: youtubeDJ.loadVideo
+        Note over PM: PlayerManager loads video
+    end
+```

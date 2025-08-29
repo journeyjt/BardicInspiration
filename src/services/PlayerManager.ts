@@ -6,6 +6,7 @@
 import { SessionStore } from '../state/SessionStore.js';
 import { VideoInfo, HeartbeatData, StateChangeEvent } from '../state/StateTypes.js';
 import { logger } from '../lib/logger.js';
+import { PlaybackStrategyFactory } from './PlaybackStrategy.js';
 
 export interface YouTubeDJMessage {
   type: string;
@@ -51,110 +52,28 @@ export class PlayerManager {
   /**
    * Play current video
    */
+  /**
+   * Play video using appropriate strategy
+   * Refactored to use Strategy pattern for reduced complexity
+   */
   async play(): Promise<void> {
     if (!this.store.isDJ()) {
       throw new Error('Only DJ can control playback');
     }
-    
-    // PRIORITY 1: Check if there are queued videos to play
-    const queueState = this.store.getQueueState();
-    const hasQueuedVideo = queueState.items.length > 0 && 
-                          queueState.currentIndex >= 0 && 
-                          queueState.currentIndex < queueState.items.length;
-    
-    if (hasQueuedVideo) {
-      const currentQueueItem = queueState.items[queueState.currentIndex];
-      const playerState = this.store.getPlayerState();
-      
-      // Check if the current queue item is a playlist
-      if (currentQueueItem.isPlaylist && currentQueueItem.playlistId) {
-        // Check if playlist is already loaded
-        const currentlyLoadedVideo = playerState.currentVideo?.videoId;
-        const expectedPlaylistId = `playlist:${currentQueueItem.playlistId}`;
-        
-        if (currentlyLoadedVideo === expectedPlaylistId) {
-          // Playlist is already loaded, just play it
-          logger.debug('🎵 YouTube DJ | Playlist already loaded, sending play command');
-          Hooks.callAll('youtubeDJ.playerCommand', { command: 'playVideo' });
-          
-          // Update state to playing
-          this.store.updateState({
-            player: {
-              ...playerState,
-              playbackState: 'playing'
-            }
-          });
-          
-          // Broadcast play command
-          this.broadcastMessage({
-            type: 'PLAY',
-            userId: game.user?.id || '',
-            timestamp: Date.now()
-          });
-          
-          return;
-        } else {
-          // Need to load the playlist first
-          logger.debug('🎵 YouTube DJ | Playing playlist from queue:', currentQueueItem.playlistId);
-          await this.loadPlaylist(currentQueueItem.playlistId, true);
-          return; // loadPlaylist will handle playing
-        }
-      }
-      
-      logger.debug('🎵 YouTube DJ | Queue has videos, checking if correct video is loaded:', {
-        queueVideoId: currentQueueItem.videoId,
-        playerVideoId: playerState.currentVideo?.videoId,
-        queueTitle: currentQueueItem.title
-      });
-      
-      // Check if the player has the correct video loaded
-      if (playerState.currentVideo?.videoId !== currentQueueItem.videoId) {
-        logger.debug('🎵 YouTube DJ | Loading correct video from queue:', currentQueueItem.title);
-        await this.loadVideo(currentQueueItem.videoId);
-        return; // loadVideo will handle playing
-      }
-      
-      // Correct video is already loaded, proceed to play it
-      logger.debug('🎵 YouTube DJ | Playing current queue video:', currentQueueItem.title);
-    } else {
-      // PRIORITY 2: No queue items - check if there's a fallback video loaded
-      const playerState = this.store.getPlayerState();
-      const hasValidVideo = playerState.currentVideo?.videoId && 
-                            playerState.currentVideo.videoId.length === 11;
-      
-      if (!hasValidVideo) {
-        throw new Error('No video loaded. Please add videos to the queue first.');
-      }
-      
-      logger.debug('🎵 YouTube DJ | No queue items, playing loaded video:', {
-        videoId: playerState.currentVideo.videoId,
-        title: playerState.currentVideo.title
-      });
-    }
 
     try {
-      // Send command to widget player
-      Hooks.callAll('youtubeDJ.playerCommand', { command: 'playVideo' });
+      // Determine and execute appropriate playback strategy
+      const strategy = PlaybackStrategyFactory.createStrategy(this.store, this);
       
-      this.store.updateState({
-        player: {
-          ...this.store.getPlayerState(),
-          playbackState: 'playing'
-        }
-      });
-
-      // Start heartbeat for synchronization
-      this.startHeartbeat();
-
-      // Broadcast play command
-      const playMessage = {
-        type: 'PLAY',
-        userId: game.user?.id || '',
-        timestamp: Date.now()
-      };
-      logger.debug('🎵 YouTube DJ | Broadcasting PLAY message:', playMessage);
-      this.broadcastMessage(playMessage);
-
+      logger.debug(`🎵 YouTube DJ | Executing playback strategy: ${strategy.getDescription()}`);
+      
+      await strategy.execute();
+      
+      // Start heartbeat for synchronization (if not already started by strategy)
+      if (!this.heartbeatInterval) {
+        this.startHeartbeat();
+      }
+      
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to play video:', error);
       throw error;

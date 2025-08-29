@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sed:*)",
+      "Bash(node:*)",
+      "WebFetch(domain:foundryvtt.com)",
+      "WebSearch",
+      "Bash(mkdir:*)",
+      "Bash(npm run vite:build:*)",
+      "Bash(grep:*)",
+      "Bash(npm run validate:*)",
+      "Bash(rm:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(npm run build:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)",
+      "Bash(npm install)",
+      "Bash(npm run test:*)",
+      "Bash(npm test)",
+      "Bash(npm test:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vitest run:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "additionalDirectories": [
+      "D:\\d\\repos"
+    ]
+  }
+}
