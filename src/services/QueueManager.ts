@@ -30,6 +30,10 @@ export class QueueManager {
     Hooks.on('youtubeDJ.queueRemove', this.onQueueRemove.bind(this));
     Hooks.on('youtubeDJ.queueUpdate', this.onQueueUpdate.bind(this));
     Hooks.on('youtubeDJ.queueClear', this.onQueueClear.bind(this));
+    
+    // Listen to error handling events
+    Hooks.on('youtubeDJ.skipToNext', this.onSkipToNext.bind(this));
+    Hooks.on('youtubeDJ.playlistEmbedError', this.onPlaylistEmbedError.bind(this));
   }
 
   /**
@@ -49,6 +53,105 @@ export class QueueManager {
       // In single-DJ mode, only the DJ can add videos
       return this.store.isDJ();
     }
+  }
+
+  /**
+   * Add playlist to queue
+   */
+  async addPlaylist(playlistId: string, playlistUrl: string): Promise<void> {
+    if (!this.canAddToQueue()) {
+      const groupMode = game.settings.get('bardic-inspiration', 'youtubeDJ.groupMode') as boolean;
+      throw new Error(groupMode 
+        ? 'You must be in the listening session to add playlists to the queue' 
+        : 'Only the DJ can add playlists to the queue');
+    }
+
+    // Check for non-embeddable playlist IDs directly
+    const nonEmbeddablePlaylists = [
+      'LL', // Liked videos
+      'WL', // Watch Later
+      'HL', // History
+      'FV', // Favorites (deprecated but still exists)
+      'FL', // Favorites (legacy)
+      // Note: RD playlists (YouTube Mix) are generally embeddable, so we don't block them
+      // Note: UU playlists (User uploads) are generally embeddable
+      'OLAK5uy_', // YouTube Music albums (start with OLAK5uy_)
+      'RDMM', // YouTube Music mixes (more specific than just RD)
+      'RDAMVM', // YouTube Music artist mixes
+      'RDCLAK5uy_', // YouTube Music radio
+    ];
+    
+    const isNonEmbeddable = nonEmbeddablePlaylists.some(prefix => 
+      playlistId === prefix || playlistId.startsWith(prefix)
+    );
+    
+    if (isNonEmbeddable) {
+      throw new Error(`This playlist type cannot be embedded. Playlists like Liked Videos (LL), Watch Later (WL), History (HL), and YouTube Music playlists are not supported.`);
+    }
+
+    const userId = game.user?.id;
+    const userName = game.user?.name;
+
+    if (!userId || !userName) {
+      throw new Error('No user context available');
+    }
+
+    logger.debug('🎵 YouTube DJ | Adding playlist to queue:', playlistId);
+
+    // Create playlist queue item
+    const queueItem: VideoItem = {
+      id: `playlist_${playlistId}_${Date.now()}`,
+      videoId: `playlist:${playlistId}`, // Special prefix to identify playlists
+      title: `🎵 YouTube Playlist`,
+      addedBy: userName,
+      addedAt: Date.now(),
+      isPlaylist: true,
+      playlistId: playlistId,
+      playlistUrl: playlistUrl
+    };
+
+    const currentQueue = this.store.getQueueState();
+    let newQueue = [...currentQueue.items];
+    let newIndex = currentQueue.currentIndex;
+
+    // Add to end of queue
+    newQueue.push(queueItem);
+    
+    // If queue was empty, set as current
+    if (newIndex < 0 && newQueue.length === 1) {
+      newIndex = 0;
+    }
+
+    // Update store
+    this.store.updateState({
+      queue: {
+        ...currentQueue,
+        items: newQueue,
+        currentIndex: newIndex
+      }
+    });
+
+    // Broadcast the add
+    this.broadcastMessage({
+      type: 'QUEUE_ADD',
+      userId: userId,
+      timestamp: Date.now(),
+      data: {
+        queueItem: queueItem,  // Changed from 'item' to 'queueItem' for consistency
+        queueState: {
+          items: newQueue,
+          currentIndex: newIndex
+        }
+      }
+    });
+
+    // If this playlist became the current item (queue was empty), load it
+    if (newIndex === 0 && currentQueue.currentIndex < 0) {
+      logger.debug('🎵 YouTube DJ | Playlist is now current, loading it:', playlistId);
+      this.playQueueItem(0);
+    }
+
+    logger.info('🎵 YouTube DJ | Playlist added to queue:', playlistId);
   }
 
   /**
@@ -123,6 +226,10 @@ export class QueueManager {
     // If playing now and we have a current video, load it
     if (playNow && newIndex >= 0) {
       this.playQueueItem(newIndex);
+    } else if (!playNow && currentQueue.items.length === 0 && newIndex === 0) {
+      // If this is the first video added to an empty queue, load it (but don't auto-play)
+      logger.debug('🎵 YouTube DJ | Video is now current in empty queue, loading it:', queueItem.title);
+      this.playQueueItem(0);
     }
 
     logger.info('🎵 YouTube DJ | Video added to queue:', queueItem.title);
@@ -585,14 +692,90 @@ export class QueueManager {
   }
 
   /**
+   * Extract playlist ID from YouTube URL
+   */
+  extractPlaylistId(url: string): string | null {
+    const playlistPattern = /[?&]list=([a-zA-Z0-9_-]+)/;
+    const match = url.match(playlistPattern);
+    return match ? match[1] : null;
+  }
+
+  /**
+   * Check if URL contains a playlist
+   */
+  isPlaylistUrl(url: string): boolean {
+    return /[?&]list=[a-zA-Z0-9_-]+/.test(url);
+  }
+
+  /**
    * Validate YouTube URL/ID
    */
-  validateVideoInput(input: string): { isValid: boolean; videoId: string | null; error?: string } {
+  validateVideoInput(input: string): { 
+    isValid: boolean; 
+    videoId: string | null; 
+    playlistId?: string | null;
+    isPlaylist?: boolean;
+    error?: string 
+  } {
     if (!input || input.trim().length === 0) {
       return { isValid: false, videoId: null, error: 'Please enter a YouTube URL or video ID' };
     }
 
-    const videoId = this.extractVideoId(input.trim());
+    const trimmedInput = input.trim();
+    
+    // Check if this is a playlist URL
+    if (this.isPlaylistUrl(trimmedInput)) {
+      const playlistId = this.extractPlaylistId(trimmedInput);
+      
+      if (!playlistId) {
+        return { 
+          isValid: false, 
+          videoId: null, 
+          error: 'Could not extract playlist ID from URL' 
+        };
+      }
+      
+      // Check for non-embeddable playlist IDs
+      const nonEmbeddablePlaylists = [
+        'LL', // Liked videos
+        'WL', // Watch Later
+        'HL', // History
+        'FV', // Favorites (deprecated but still exists)
+        'FL', // Favorites (legacy)
+        // Note: RD playlists (YouTube Mix) are generally embeddable, so we don't block them
+        // Note: UU playlists (User uploads) are generally embeddable
+        'OLAK5uy_', // YouTube Music albums (start with OLAK5uy_)
+        'RDMM', // YouTube Music mixes (more specific than just RD)
+        'RDAMVM', // YouTube Music artist mixes
+        'RDCLAK5uy_', // YouTube Music radio
+      ];
+      
+      // Check if playlist ID matches any non-embeddable pattern
+      const isNonEmbeddable = nonEmbeddablePlaylists.some(prefix => 
+        playlistId === prefix || playlistId.startsWith(prefix)
+      );
+      
+      if (isNonEmbeddable) {
+        return { 
+          isValid: false, 
+          videoId: null, 
+          error: `This playlist type cannot be embedded. Playlists like Liked Videos (LL), Watch Later (WL), History (HL), and YouTube Music playlists are not supported.` 
+        };
+      }
+      
+      // For playlists, we might also have a video ID (e.g., video in playlist context)
+      const videoId = this.extractVideoId(trimmedInput);
+      
+      return { 
+        isValid: true, 
+        videoId: videoId, // Can be null for pure playlist URLs
+        playlistId: playlistId,
+        isPlaylist: true
+      };
+    }
+    
+    // Otherwise, treat as single video
+    const videoId = this.extractVideoId(trimmedInput);
     
     if (!videoId) {
       return { 
@@ -626,7 +809,24 @@ export class QueueManager {
 
     const queueItem = currentQueue.items[index];
     
-    // Validate video ID before playing
+    // Check if this is a playlist
+    if (queueItem.isPlaylist && queueItem.playlistId) {
+      logger.debug('🎵 YouTube DJ | Playing playlist:', queueItem.playlistId);
+      
+      // Emit event for PlayerManager to handle playlist
+      Hooks.callAll('youtubeDJ.loadPlaylist', {
+        playlistId: queueItem.playlistId,
+        playlistInfo: {
+          playlistId: queueItem.playlistId,
+          title: queueItem.title || '🎵 YouTube Playlist'
+        }
+      });
+      
+      logger.info('🎵 YouTube DJ | Loading playlist:', queueItem.title);
+      return;
+    }
+    
+    // Validate video ID before playing regular videos
     if (!queueItem.videoId || queueItem.videoId.length !== 11) {
       logger.error('🎵 YouTube DJ | Invalid video ID in queue item:', {
         title: queueItem.title,
@@ -825,12 +1025,32 @@ export class QueueManager {
   /**
    * Handle video ended event
    */
-  private async onVideoEnded(data: { videoId: string }): Promise<void> {
+  private async onVideoEnded(data: { videoId: string; isPlaylistEnd?: boolean }): Promise<void> {
     if (!this.store.isDJ()) {
       return;
     }
 
-    logger.debug('🎵 YouTube DJ | Video ended, auto-advancing to next...');
+    // Check if the current queue item is a playlist
+    const currentItem = this.getCurrentVideo();
+    
+    if (currentItem?.isPlaylist) {
+      // For playlists, check if the entire playlist has ended
+      if (data.isPlaylistEnd) {
+        logger.debug('🎵 YouTube DJ | Playlist ended, advancing to next queue item...');
+        try {
+          await this.nextVideo();
+        } catch (error) {
+          logger.error('🎵 YouTube DJ | Failed to advance to next queue item:', error);
+        }
+      } else {
+        // YouTube will automatically play the next video in the playlist
+        logger.debug('🎵 YouTube DJ | Video in playlist ended, YouTube will handle next video');
+      }
+      return;
+    }
+    
+    // For regular videos, auto-advance to next queue item
+    logger.debug('🎵 YouTube DJ | Video ended, auto-advancing to next queue item...');
     
     try {
       await this.nextVideo();
@@ -879,6 +1099,56 @@ export class QueueManager {
   }
 
   /**
+   * Handle skip to next when playlist/video cannot be embedded
+   */
+  private async onSkipToNext(data: { reason: string }): Promise<void> {
+    if (!this.store.isDJ()) {
+      return; // Only DJ handles skip requests
+    }
+
+    logger.debug('🎵 YouTube DJ | Handling skip to next request:', data.reason);
+    
+    try {
+      await this.nextVideo();
+      ui.notifications?.info('Skipped to next item in queue');
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to skip to next:', error);
+    }
+  }
+
+  /**
+   * Handle playlist embed errors by optionally removing the playlist
+   */
+  private onPlaylistEmbedError(data: { playlistId: string; queueItemId: string; error: string }): void {
+    if (!this.store.isDJ()) {
+      return; // Only DJ handles error cleanup
+    }
+
+    logger.warn('🎵 YouTube DJ | Playlist embed error:', data);
+    
+    // Optionally remove the failed playlist from queue
+    const currentQueue = this.store.getQueueState();
+    const failedItemIndex = currentQueue.items.findIndex(item => item.id === data.queueItemId);
+    
+    if (failedItemIndex >= 0) {
+      // Log the failed playlist for debugging
+      const failedItem = currentQueue.items[failedItemIndex];
+      logger.info('🎵 YouTube DJ | Failed playlist details:', {
+        playlistId: failedItem.playlistId,
+        title: failedItem.title,
+        error: data.error
+      });
+      
+      // Notify users about the failure
+      const errorMessage = data.error === 'not_found' 
+        ? `Playlist ${failedItem.playlistId || 'unknown'} was not found or is private`
+        : `Playlist ${failedItem.playlistId || 'unknown'} has embedding disabled`;
+      
+      ui.notifications?.warn(errorMessage);
+    }
+  }
+
+  /**
    * Cleanup method
    */
   destroy(): void {
@@ -889,6 +1159,8 @@ export class QueueManager {
     Hooks.off('youtubeDJ.queueRemove', this.onQueueRemove.bind(this));
     Hooks.off('youtubeDJ.queueUpdate', this.onQueueUpdate.bind(this));
     Hooks.off('youtubeDJ.queueClear', this.onQueueClear.bind(this));
+    Hooks.off('youtubeDJ.skipToNext', this.onSkipToNext.bind(this));
+    Hooks.off('youtubeDJ.playlistEmbedError', this.onPlaylistEmbedError.bind(this));
     logger.debug('🎵 YouTube DJ | QueueManager destroyed');
   }
 }

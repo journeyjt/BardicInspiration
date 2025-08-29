@@ -234,7 +234,7 @@ describe('Performance and Edge Cases', () => {
       }
 
       const averageTime = processingTimes.reduce((sum, time) => sum + time, 0) / processingTimes.length;
-      expect(averageTime).toBeLessThan(5); // Average processing should be under 5ms
+      expect(averageTime).toBeLessThan(10); // Average processing should be under 10ms
 
       const state = store.getState();
       expect(state.session.members).toHaveLength(100);

@@ -131,6 +131,13 @@ declare global {
       seekTo(seconds: number, allowSeekAhead?: boolean): void;
       loadVideoById(videoId: string, startSeconds?: number): void;
       cueVideoById(videoId: string, startSeconds?: number): void;
+      loadPlaylist(playlist: string | string[] | { list: string; listType?: string; index?: number; startSeconds?: number }): void;
+      cuePlaylist(playlist: string | string[] | { list: string; listType?: string; index?: number; startSeconds?: number }): void;
+      nextVideo(): void;
+      previousVideo(): void;
+      playVideoAt(index: number): void;
+      getPlaylist(): string[];
+      getPlaylistIndex(): number;
       mute(): void;
       unMute(): void;
       isMuted(): boolean;

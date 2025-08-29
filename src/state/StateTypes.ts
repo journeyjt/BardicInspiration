@@ -27,6 +27,10 @@ export interface VideoItem {
   title?: string;
   addedBy: string;
   addedAt: number;
+  // Playlist-specific fields
+  isPlaylist?: boolean;
+  playlistId?: string;
+  playlistUrl?: string;
 }
 
 export interface VideoInfo {
@@ -52,6 +56,8 @@ export interface HeartbeatData {
   isPlaying: boolean;
   timestamp: number;
   serverTime: number;
+  playlistId?: string;
+  playlistIndex?: number;
 }
 
 // ===== State Interfaces =====
@@ -80,6 +86,12 @@ export interface PlayerState {
   lastHeartbeat: HeartbeatData | null;
   driftTolerance: number;
   heartbeatFrequency: number;
+  // Playlist information
+  playlistInfo?: {
+    totalVideos: number;
+    currentIndex: number;
+    playlistId?: string;
+  };
 }
 
 export interface SavedQueue {

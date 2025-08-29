@@ -115,7 +115,15 @@
       {{/if}}
     </div>
     <div class="queue-item-info">
-      <span class="queue-item-title">{{#if currentlyPlaying.title}}{{currentlyPlaying.title}}{{else}}{{currentlyPlaying.videoId}}{{/if}}</span>
+      <span class="queue-item-title">
+        {{#if currentlyPlaying.isPlaylist}}<i class="fas fa-list" style="margin-right: 5px; color: var(--bardic-inspiration-accent);" title="Playlist"></i>{{/if}}
+        {{#if currentlyPlaying.title}}{{currentlyPlaying.title}}{{else}}{{currentlyPlaying.videoId}}{{/if}}
+        {{#if currentlyPlaying.playlistInfo}}
+        <span class="playlist-progress" style="margin-left: 8px; color: var(--bardic-inspiration-accent); font-weight: bold;">
+          [{{add currentlyPlaying.playlistInfo.currentIndex 1}} / {{currentlyPlaying.playlistInfo.totalVideos}}]
+        </span>
+        {{/if}}
+      </span>
       <div class="queue-item-meta">
         {{#if currentlyPlaying.authorName}}
         <span class="channel-name">{{currentlyPlaying.authorName}}</span>
@@ -147,7 +155,10 @@
       {{/if}}
     </div>
     <div class="queue-item-info">
-      <span class="queue-item-title">{{#if title}}{{title}}{{else}}{{videoId}}{{/if}}</span>
+      <span class="queue-item-title">
+        {{#if isPlaylist}}<i class="fas fa-list" style="margin-right: 5px; color: var(--bardic-inspiration-accent);" title="Playlist"></i>{{/if}}
+        {{#if title}}{{title}}{{else}}{{videoId}}{{/if}}
+      </span>
       <div class="queue-item-meta">
         {{#if authorName}}
         <span class="channel-name">{{authorName}}</span>
