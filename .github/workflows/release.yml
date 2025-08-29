@@ -278,21 +278,45 @@ jobs:
         echo "Version: $RELEASE_VERSION"
         echo "Manifest URL: $MANIFEST_URL"
         
-        # Submit to Foundry VTT Package Release API
-        RESPONSE=$(curl -s -X POST \
-          -H "Content-Type: application/json" \
-          -H "Authorization: $FOUNDRY_RELEASE_TOKEN" \
-          -d "$PAYLOAD" \
-          https://api.foundryvtt.com/_api/packages/release)
+        # Debug: Check token format (without revealing it)
+        echo "Token starts with: $(echo $FOUNDRY_RELEASE_TOKEN | cut -c1-6)..."
+        echo "Token length: ${#FOUNDRY_RELEASE_TOKEN}"
         
-        # Check response
-        if echo "$RESPONSE" | grep -q "error"; then
+        # Submit to Foundry VTT Package Release API
+        # Try with verbose output to see headers
+        echo "Sending request to Foundry API..."
+        
+        RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+          -H "Content-Type: application/json" \
+          -H "Authorization: ${FOUNDRY_RELEASE_TOKEN}" \
+          -d "$PAYLOAD" \
+          https://foundryvtt.com/_api/packages/release_version/)
+        
+        # Extract HTTP status code and response body
+        HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+        RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+        
+        echo "HTTP Status Code: $HTTP_CODE"
+        echo "Response Body: $RESPONSE_BODY"
+        
+        # Check response - look for success indicators or known error patterns
+        if [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || echo "$RESPONSE_BODY" | grep -q '"status":\s*"success"'; then
+          echo "SUCCESS: Package published to Foundry VTT Package Release API!"
+        elif [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+          echo "ERROR: Authentication failed (HTTP $HTTP_CODE)"
+          echo "Please verify your FOUNDRY_RELEASE_TOKEN is correct"
+          echo "Get your token from: https://foundryvtt.com/me/api"
+          exit 1
+        elif echo "$RESPONSE_BODY" | grep -q "error\|Error\|failed\|Failed"; then
           echo "ERROR: Failed to publish to Foundry API"
-          echo "Response: $RESPONSE"
+          exit 1
+        elif [ -z "$RESPONSE_BODY" ] && [ "$HTTP_CODE" != "200" ] && [ "$HTTP_CODE" != "201" ]; then
+          echo "ERROR: Empty response with HTTP status $HTTP_CODE"
           exit 1
         else
-          echo "SUCCESS: Package published to Foundry VTT Package Release API!"
-          echo "Response: $RESPONSE"
+          # If response doesn't clearly indicate success or failure, show it as a warning
+          echo "WARNING: Unexpected response from Foundry API (HTTP $HTTP_CODE)"
+          echo "This may indicate success - please check https://foundryvtt.com/packages"
         fi
 
     - name: Release Summary
