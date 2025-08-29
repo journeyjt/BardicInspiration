@@ -71,7 +71,9 @@ export class QueueSectionComponent extends BaseComponent {
         ...currentItem,
         // Add video metadata if available from player state
         thumbnailUrl: playerState.currentVideo?.thumbnailUrl,
-        authorName: playerState.currentVideo?.authorName
+        authorName: playerState.currentVideo?.authorName,
+        // Add playlist progress if available
+        playlistInfo: playerState.playlistInfo
       };
       
       // Get all items after the current one for the upcoming queue
@@ -222,27 +224,43 @@ export class QueueSectionComponent extends BaseComponent {
     try {
       this.updateLoadingState(true);
       
-      const videoId = UIHelper.extractVideoId(input);
-      if (!videoId) {
-        throw new Error('Invalid YouTube URL');
+      // Use QueueManager's validation which now handles playlists
+      const validation = this.queueManager.validateVideoInput(input);
+      
+      if (!validation.isValid) {
+        throw new Error(validation.error || 'Invalid YouTube URL');
       }
 
-      // Fetch video metadata before adding to queue
-      ui.notifications?.info('Fetching video information...');
-      const videoInfo = await this.playerManager.fetchVideoInfo(videoId);
-      
-      logger.debug('🎵 YouTube DJ | Video metadata fetched:', videoInfo);
+      // Handle playlist URLs differently
+      if (validation.isPlaylist && validation.playlistId) {
+        ui.notifications?.info('Adding YouTube playlist to queue...');
+        
+        // Add playlist to queue
+        await this.queueManager.addPlaylist(validation.playlistId, input);
+        
+        // Clear input
+        urlInput.value = '';
+        ui.notifications?.success('Playlist added to queue');
+      } else if (validation.videoId) {
+        // Handle regular video URLs
+        ui.notifications?.info('Fetching video information...');
+        const videoInfo = await this.playerManager.fetchVideoInfo(validation.videoId);
+        
+        logger.debug('🎵 YouTube DJ | Video metadata fetched:', videoInfo);
 
-      // Add to queue via QueueManager with proper metadata
-      await this.queueManager.addVideo(videoInfo);
+        // Add to queue via QueueManager with proper metadata
+        await this.queueManager.addVideo(videoInfo);
 
-      // Clear input
-      urlInput.value = '';
-      ui.notifications?.success('Video added to queue');
+        // Clear input
+        urlInput.value = '';
+        ui.notifications?.success('Video added to queue');
+      } else {
+        throw new Error('Could not extract video or playlist ID');
+      }
 
     } catch (error) {
-      logger.error('🎵 YouTube DJ | Failed to add video to queue:', error);
-      ui.notifications?.error(`Failed to add video: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      logger.error('🎵 YouTube DJ | Failed to add to queue:', error);
+      ui.notifications?.error(`Failed to add: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       this.updateLoadingState(false);
     }
@@ -476,7 +494,26 @@ export class QueueSectionComponent extends BaseComponent {
     }
 
     try {
-      await this.queueManager.nextVideo();
+      // Check if current item is a playlist
+      const currentItem = this.queueManager.getCurrentVideo();
+      
+      if (currentItem?.isPlaylist) {
+        // For playlists, send command to YouTube player to go to next video in playlist
+        logger.debug('🎵 YouTube DJ | Skipping to next video in playlist');
+        Hooks.callAll('youtubeDJ.playerCommand', {
+          command: 'nextVideo'
+        });
+        
+        // Broadcast the next video command to other users
+        game.socket?.emit('module.bardic-inspiration', {
+          type: 'PLAYLIST_NEXT',
+          userId: game.user?.id || '',
+          timestamp: Date.now()
+        });
+      } else {
+        // For regular videos, advance to next queue item (with cycling)
+        await this.queueManager.nextVideo();
+      }
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to skip track:', error);
       ui.notifications?.error('Failed to skip track');

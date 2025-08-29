@@ -188,6 +188,7 @@ export class SocketManager {
     this.registerHandler('PAUSE', new PauseHandler(this.store));
     this.registerHandler('SEEK', new SeekHandler(this.store));
     this.registerHandler('LOAD', new LoadHandler(this.store));
+    this.registerHandler('LOAD_PLAYLIST', new LoadPlaylistHandler(this.store));
     this.registerHandler('HEARTBEAT', new HeartbeatHandler(this.store));
     this.registerHandler('HEARTBEAT_RESPONSE', new HeartbeatResponseHandler(this.store));
 
@@ -204,6 +205,10 @@ export class SocketManager {
     this.registerHandler('QUEUE_DELETED', new QueueDeletedHandler(this.store));
     this.registerHandler('QUEUE_RENAMED', new QueueRenamedHandler(this.store));
     this.registerHandler('QUEUE_SYNC', new QueueSyncHandler(this.store));
+    
+    // Playlist navigation handlers (pass-through, handled by widget)
+    this.registerHandler('PLAYLIST_NEXT', new PassThroughHandler(this.store));
+    this.registerHandler('PLAYLIST_PREV', new PassThroughHandler(this.store));
 
     logger.debug('🎵 YouTube DJ | Default message handlers registered');
   }
@@ -300,6 +305,18 @@ export class SocketManager {
 }
 
 // ===== Message Handlers =====
+
+/**
+ * Pass-through handler for messages that are handled directly by the widget
+ */
+class PassThroughHandler implements MessageHandler {
+  constructor(private store: SessionStore) {}
+  
+  handle(message: YouTubeDJMessage): void {
+    // These messages are handled directly by the widget
+    logger.debug(`🎵 YouTube DJ | Pass-through message: ${message.type}`);
+  }
+}
 
 class StateRequestHandler implements MessageHandler {
   constructor(private store: SessionStore, private socketManager: SocketManager) {}
@@ -629,6 +646,33 @@ class LoadHandler implements MessageHandler {
       startTime: message.data?.startTime || 0,
       videoInfo: message.data?.videoInfo,
       autoPlay: message.data?.autoPlay !== false, // Default to true for backward compatibility
+      timestamp: message.timestamp
+    });
+  }
+}
+
+class LoadPlaylistHandler implements MessageHandler {
+  constructor(private store: SessionStore) {}
+
+  handle(message: YouTubeDJMessage): void {
+    logger.debug('🎵 YouTube DJ | Load playlist command from DJ:', message.data?.playlistId);
+
+    // Update player state
+    this.store.updateState({
+      player: {
+        ...this.store.getPlayerState(),
+        currentVideo: {
+          videoId: `playlist:${message.data?.playlistId}`,
+          title: '🎵 YouTube Playlist',
+          duration: 0
+        }
+      }
+    });
+
+    // Emit event for PlayerManager to handle
+    Hooks.callAll('youtubeDJ.loadPlaylistCommand', {
+      playlistId: message.data?.playlistId,
+      autoPlay: message.data?.autoPlay !== false,
       timestamp: message.timestamp
     });
   }

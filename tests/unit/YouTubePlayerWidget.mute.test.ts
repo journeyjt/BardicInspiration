@@ -3,7 +3,7 @@
  * Verifies that mute button visual state stays in sync with actual mute state
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { YouTubePlayerWidget } from '../../src/ui/YouTubePlayerWidget';
 import { SessionStore } from '../../src/state/SessionStore';
 import TestUtils from '../setup/test-setup';
@@ -17,6 +17,12 @@ describe('YouTubePlayerWidget Mute Button Visual State', () => {
   beforeEach(async () => {
     TestUtils.resetMocks();
     TestUtils.setupDOM();
+    
+    // Mock requestAnimationFrame to execute immediately
+    (global as any).requestAnimationFrame = vi.fn((cb) => {
+      cb();
+      return 0;
+    });
 
     // Mock client settings storage
     mockSettingsStore = new Map();
@@ -65,6 +71,17 @@ describe('YouTubePlayerWidget Mute Button Visual State', () => {
         <i class="fas fa-volume-up"></i>
       </button>
     `;
+  });
+
+  afterEach(() => {
+    // Clean up widget and its timers
+    if (widget) {
+      widget.destroy();
+    }
+    vi.clearAllMocks();
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    document.body.innerHTML = '';
   });
 
   describe('Visual State Synchronization Bug', () => {

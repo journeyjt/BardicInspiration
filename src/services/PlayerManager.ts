@@ -27,6 +27,9 @@ export class PlayerManager {
     // Listen for video load requests from QueueManager
     Hooks.on('youtubeDJ.loadVideo', this.onLoadVideoRequest.bind(this));
     
+    // Listen for playlist load requests from QueueManager
+    Hooks.on('youtubeDJ.loadPlaylist', this.onLoadPlaylistRequest.bind(this));
+    
     // Listen for video cue requests (load without auto-play)
     Hooks.on('youtubeDJ.cueVideo', this.onCueVideoRequest.bind(this));
     
@@ -38,6 +41,7 @@ export class PlayerManager {
     Hooks.on('youtubeDJ.pauseCommand', this.onPauseCommand.bind(this));
     Hooks.on('youtubeDJ.seekCommand', this.onSeekCommand.bind(this));
     Hooks.on('youtubeDJ.loadCommand', this.onLoadCommand.bind(this));
+    Hooks.on('youtubeDJ.loadPlaylistCommand', this.onLoadPlaylistCommand.bind(this));
   }
 
   // Legacy initializePlayer removed - widget handles player initialization
@@ -61,6 +65,41 @@ export class PlayerManager {
     if (hasQueuedVideo) {
       const currentQueueItem = queueState.items[queueState.currentIndex];
       const playerState = this.store.getPlayerState();
+      
+      // Check if the current queue item is a playlist
+      if (currentQueueItem.isPlaylist && currentQueueItem.playlistId) {
+        // Check if playlist is already loaded
+        const currentlyLoadedVideo = playerState.currentVideo?.videoId;
+        const expectedPlaylistId = `playlist:${currentQueueItem.playlistId}`;
+        
+        if (currentlyLoadedVideo === expectedPlaylistId) {
+          // Playlist is already loaded, just play it
+          logger.debug('🎵 YouTube DJ | Playlist already loaded, sending play command');
+          Hooks.callAll('youtubeDJ.playerCommand', { command: 'playVideo' });
+          
+          // Update state to playing
+          this.store.updateState({
+            player: {
+              ...playerState,
+              playbackState: 'playing'
+            }
+          });
+          
+          // Broadcast play command
+          this.broadcastMessage({
+            type: 'PLAY',
+            userId: game.user?.id || '',
+            timestamp: Date.now()
+          });
+          
+          return;
+        } else {
+          // Need to load the playlist first
+          logger.debug('🎵 YouTube DJ | Playing playlist from queue:', currentQueueItem.playlistId);
+          await this.loadPlaylist(currentQueueItem.playlistId, true);
+          return; // loadPlaylist will handle playing
+        }
+      }
       
       logger.debug('🎵 YouTube DJ | Queue has videos, checking if correct video is loaded:', {
         queueVideoId: currentQueueItem.videoId,
@@ -108,11 +147,13 @@ export class PlayerManager {
       this.startHeartbeat();
 
       // Broadcast play command
-      this.broadcastMessage({
+      const playMessage = {
         type: 'PLAY',
         userId: game.user?.id || '',
         timestamp: Date.now()
-      });
+      };
+      logger.debug('🎵 YouTube DJ | Broadcasting PLAY message:', playMessage);
+      this.broadcastMessage(playMessage);
 
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to play video:', error);
@@ -239,6 +280,75 @@ export class PlayerManager {
   }
 
   /**
+   * Load a playlist
+   * @param playlistId - The YouTube playlist ID
+   * @param autoPlay - Whether to auto-play after loading (default true)
+   */
+  async loadPlaylist(playlistId: string, autoPlay: boolean = true): Promise<void> {
+    if (!this.store.isDJ()) {
+      throw new Error('Only DJ can load playlists');
+    }
+
+    logger.debug('🎵 YouTube DJ | Loading playlist:', playlistId);
+
+    try {
+      this.store.updateState({
+        player: {
+          ...this.store.getPlayerState(),
+          currentVideo: {
+            videoId: `playlist:${playlistId}`,
+            title: '🎵 YouTube Playlist',
+            duration: 0
+          },
+          playbackState: 'loading'
+        }
+      });
+
+      // Send command to widget player
+      if (autoPlay) {
+        logger.debug('🎵 YouTube DJ | Loading playlist with autoplay');
+        Hooks.callAll('youtubeDJ.playerCommand', { 
+          command: 'loadPlaylist', 
+          args: [{
+            list: playlistId,
+            listType: 'playlist',
+            index: 0
+          }]
+        });
+      } else {
+        Hooks.callAll('youtubeDJ.playerCommand', { 
+          command: 'cuePlaylist', 
+          args: [{
+            list: playlistId,
+            listType: 'playlist',
+            index: 0
+          }]
+        });
+      }
+
+      // Broadcast playlist load command
+      this.broadcastMessage({
+        type: 'LOAD_PLAYLIST',
+        userId: game.user?.id || '',
+        timestamp: Date.now(),
+        data: { playlistId, autoPlay }
+      });
+      
+      // Start heartbeat if autoPlay is true
+      if (autoPlay) {
+        logger.debug('🎵 YouTube DJ | Starting heartbeat for playlist playback');
+        this.startHeartbeat();
+      }
+
+      logger.info('🎵 YouTube DJ | Playlist loaded successfully:', playlistId);
+
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to load playlist:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Mute the player
    */
   async mute(): Promise<void> {
@@ -337,10 +447,14 @@ export class PlayerManager {
     }
 
     this.stopHeartbeat();
+    
+    const frequency = this.store.getPlayerState().heartbeatFrequency;
+    logger.info('🎵 YouTube DJ | Starting heartbeat timer with frequency:', frequency);
 
     this.heartbeatInterval = window.setInterval(() => {
+      logger.debug('🎵 YouTube DJ | Heartbeat timer tick');
       this.sendHeartbeat();
-    }, this.store.getPlayerState().heartbeatFrequency);
+    }, frequency);
 
     logger.debug('🎵 YouTube DJ | Heartbeat started for session activity tracking');
   }
@@ -396,6 +510,9 @@ export class PlayerManager {
 
       // Request current time from widget player (only if player is ready)
       let currentTime = playerState.currentTime || 0;
+      let playlistIndex: number | undefined;
+      let playlistId: string | undefined;
+      
       if (playerState.isReady) {
         try {
           // Emit request for current time and wait for response
@@ -413,6 +530,27 @@ export class PlayerManager {
           });
           
           currentTime = await timeRequest;
+          
+          // Also request playlist index if playing a playlist
+          const queueState = this.store.getQueueState();
+          const currentItem = queueState.items[queueState.currentIndex];
+          if (currentItem?.isPlaylist) {
+            playlistId = currentItem.playlistId;
+            const indexRequest = new Promise<number | undefined>((resolve) => {
+              const timeout = setTimeout(() => resolve(undefined), 100);
+              
+              const indexHandler = (data: { playlistIndex: number }) => {
+                clearTimeout(timeout);
+                Hooks.off('youtubeDJ.playlistIndexResponse', indexHandler);
+                resolve(data.playlistIndex);
+              };
+              
+              Hooks.on('youtubeDJ.playlistIndexResponse', indexHandler);
+              Hooks.callAll('youtubeDJ.getPlaylistIndexRequest');
+            });
+            
+            playlistIndex = await indexRequest;
+          }
         } catch (error) {
           logger.debug('🎵 YouTube DJ | Failed to get current time from widget, using stored time:', currentTime);
         }
@@ -424,8 +562,21 @@ export class PlayerManager {
         duration: playerState.duration || 0,
         isPlaying,
         timestamp: Date.now(),
-        serverTime: Date.now()
+        serverTime: Date.now(),
+        playlistId,
+        playlistIndex
       };
+      
+      // Debug log for playlist heartbeats
+      if (playlistId) {
+        logger.debug('🎵 YouTube DJ | Sending playlist heartbeat:', {
+          playlistId,
+          playlistIndex,
+          videoId: currentVideo?.videoId,
+          currentTime,
+          isPlaying
+        });
+      }
 
       // Update stored current time
       this.store.updateState({
@@ -581,6 +732,24 @@ export class PlayerManager {
       await this.loadVideo(data.videoId, 0, false);
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to cue video from saved queue:', error);
+    }
+  }
+
+  /**
+   * Handle load playlist requests from QueueManager
+   */
+  private async onLoadPlaylistRequest(data: { playlistId: string; playlistInfo: any }): Promise<void> {
+    if (!this.store.isDJ()) {
+      logger.debug('🎵 YouTube DJ | Ignoring playlist load request - not DJ');
+      return;
+    }
+
+    logger.debug('🎵 YouTube DJ | Loading playlist from queue request:', data.playlistId);
+    
+    try {
+      await this.loadPlaylist(data.playlistId);
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to load playlist from queue:', error);
     }
   }
 
@@ -806,6 +975,84 @@ export class PlayerManager {
       });
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to sync load command:', error);
+    }
+  }
+
+  /**
+   * Handle load playlist command from DJ
+   */
+  private async onLoadPlaylistCommand(data: { playlistId: string; autoPlay?: boolean; timestamp: number }): Promise<void> {
+    if (this.store.isDJ()) {
+      // DJ doesn't need to respond to their own commands
+      return;
+    }
+
+    // If player not ready, wait a bit and retry
+    if (!this.store.getPlayerState().isReady) {
+      logger.debug('🎵 YouTube DJ | Player not ready for playlist load, will retry in 1 second');
+      setTimeout(() => {
+        if (this.store.getPlayerState().isReady) {
+          this.onLoadPlaylistCommand(data);
+        } else {
+          logger.warn('🎵 YouTube DJ | Player still not ready after retry, cannot sync playlist');
+        }
+      }, 1000);
+      return;
+    }
+
+    try {
+      // Update state with playlist info
+      this.store.updateState({
+        player: {
+          ...this.store.getPlayerState(),
+          currentVideo: {
+            videoId: `playlist:${data.playlistId}`,
+            title: '🎵 YouTube Playlist',
+            duration: 0
+          },
+          playbackState: 'loading'
+        }
+      });
+
+      // Also update queue to reflect the playlist
+      const currentQueue = this.store.getQueueState();
+      const currentItem = currentQueue.items[currentQueue.currentIndex];
+      
+      // If no playlist in queue or wrong playlist, sync it
+      if (!currentItem || !currentItem.isPlaylist || currentItem.playlistId !== data.playlistId) {
+        logger.info('🎵 YouTube DJ | Syncing playlist to queue for listener:', data.playlistId);
+        this.store.updateState({
+          queue: {
+            ...currentQueue,
+            items: currentQueue.items.length === 0 ? [{
+              id: `playlist_${data.playlistId}_sync`,
+              videoId: `playlist:${data.playlistId}`,
+              title: '🎵 YouTube Playlist (Synced)',
+              addedBy: 'DJ',
+              addedAt: Date.now(),
+              isPlaylist: true,
+              playlistId: data.playlistId
+            }] : currentQueue.items,
+            currentIndex: 0
+          }
+        });
+      }
+
+      // Send command to widget player
+      const command = data.autoPlay !== false ? 'loadPlaylist' : 'cuePlaylist';
+      Hooks.callAll('youtubeDJ.playerCommand', { 
+        command: command, 
+        args: [{
+          list: data.playlistId,
+          listType: 'playlist',
+          index: 0
+        }]
+      });
+
+      // Widget will handle monitoring and starting playback for listeners
+      logger.debug('🎵 YouTube DJ | Synced playlist load from DJ:', data.playlistId);
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to sync playlist load command:', error);
     }
   }
 

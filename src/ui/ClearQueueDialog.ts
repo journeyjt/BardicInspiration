@@ -117,19 +117,33 @@ export class ClearQueueDialog {
         ],
         render: (element: HTMLElement) => {
           // Add bardic-inspiration class to dialog for theming
-          element.closest('.dialog-v2')?.classList.add('bardic-dialog');
+          // The element parameter might be the application instance or jQuery object
+          // so we need to get the actual HTML element
+          const actualElement = element ? 
+            ((element as any).element?.[0] || (element as any)[0] || element) : 
+            null;
           
-          if (hasItems) {
+          if (actualElement && actualElement.closest) {
+            actualElement.closest('.dialog-v2')?.classList.add('bardic-dialog');
+          } else {
+            // Fallback: try to find the dialog element in the document
+            setTimeout(() => {
+              document.querySelector('.dialog-v2:last-of-type')?.classList.add('bardic-dialog');
+            }, 0);
+          }
+          
+          if (hasItems && element) {
             // Handle checkbox change to show/hide queue name input
-            const checkbox = element.querySelector('#saveQueueCheckbox') as HTMLInputElement;
-            const queueNameGroup = element.querySelector('#queueNameGroup') as HTMLElement;
-            const queueNameInput = element.querySelector('#queueName') as HTMLInputElement;
+            const searchElement = actualElement && actualElement.querySelector ? actualElement : element;
+            const checkbox = searchElement?.querySelector?.('#saveQueueCheckbox') as HTMLInputElement;
+            const queueNameGroup = searchElement?.querySelector?.('#queueNameGroup') as HTMLElement;
+            const queueNameInput = searchElement?.querySelector?.('#queueName') as HTMLInputElement;
             
             checkbox?.addEventListener('change', () => {
-              if (checkbox.checked) {
+              if (checkbox.checked && queueNameGroup) {
                 queueNameGroup.style.display = 'block';
                 setTimeout(() => queueNameInput?.focus(), 100);
-              } else {
+              } else if (queueNameGroup) {
                 queueNameGroup.style.display = 'none';
               }
             });
