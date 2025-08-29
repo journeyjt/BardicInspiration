@@ -19,24 +19,63 @@ export class SaveQueueDialog {
    */
   static async show(): Promise<SaveQueueDialogResult> {
     const htmlContent = `
-      <div class="bardic-save-queue-dialog">
-        <div class="dialog-content">
-          <div class="form-group">
-            <label for="queueName">
-              <i class="fas fa-tag"></i>
-              Queue Name
-            </label>
-            <input 
-              type="text" 
-              name="queueName" 
-              id="queueName" 
-              placeholder="Enter a name for this queue"
-              class="bardic-input"
-              autofocus
-              required
-            />
-            <p class="notes">Choose a unique name to identify this queue</p>
+      <div class="bardic-save-queue-dialog modern">
+        <div class="dialog-header">
+          <div class="header-content">
+            <div class="header-icon">
+              <i class="fas fa-save"></i>
+            </div>
+            <div class="header-text">
+              <h3>Save Current Queue</h3>
+              <p>Save your current queue to load it again later</p>
+            </div>
           </div>
+        </div>
+
+        <div class="dialog-body">
+          <div class="queue-info-section">
+            <div class="section-header">
+              <i class="fas fa-info-circle"></i>
+              <span>Queue Summary</span>
+            </div>
+            
+            <div class="current-queue-preview">
+              <div class="preview-stats">
+                <span class="stat primary">
+                  <i class="fas fa-music"></i>
+                  <span id="currentTrackCount">Loading...</span> tracks ready to save
+                </span>
+                <span class="stat">
+                  <i class="fas fa-clock"></i>
+                  <span>Saved: <span id="currentDateTime">${new Date().toLocaleString()}</span></span>
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div class="name-input-section">
+            <div class="section-header">
+              <i class="fas fa-tag"></i>
+              <span>Queue Name</span>
+            </div>
+            
+            <div class="input-wrapper">
+              <input 
+                type="text" 
+                name="queueName" 
+                id="queueName" 
+                placeholder="Enter a memorable name for this queue..."
+                class="modern-input"
+                autofocus
+                required
+              />
+              <div class="input-help">
+                <i class="fas fa-lightbulb"></i>
+                <span>Tip: Use descriptive names like "Epic Battle Music" or "Tavern Ambience"</span>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     `;
@@ -47,11 +86,12 @@ export class SaveQueueDialog {
       const dialogConfig = {
         window: {
           title: "Save Queue",
-          icon: "fas fa-save",
+          icon: "fas fa-save"
         },
         position: {
-          width: 400,
+          width: 400
         },
+        modal: false,
         content: htmlContent,
         buttons: [
           {
@@ -78,12 +118,20 @@ export class SaveQueueDialog {
             default: false
           }
         ],
-        render: (element: HTMLElement) => {
-          // Add bardic-inspiration class to dialog for theming
-          element.closest('.dialog-v2')?.classList.add('bardic-dialog');
+        render: (element: HTMLElement, dialog: any) => {
+          // Get the actual DOM element - DialogV2 might pass different parameters
+          const domElement = element?.element?.[0] || element?.element || element;
+          const actualDialog = dialog || element;
           
-          // Focus the input field
-          const input = element.querySelector('#queueName') as HTMLInputElement;
+          // Add bardic-inspiration class to dialog for theming - with safety check
+          if (domElement && typeof domElement.closest === 'function') {
+            domElement.closest('.dialog-v2')?.classList.add('bardic-dialog');
+          } else if (actualDialog?.element && typeof actualDialog.element.closest === 'function') {
+            actualDialog.element.closest('.dialog-v2')?.classList.add('bardic-dialog');
+          }
+          
+          // Focus the input field - use the proper DOM element
+          const input = (domElement?.querySelector ? domElement.querySelector('#queueName') : actualDialog?.element?.querySelector('#queueName')) as HTMLInputElement;
           if (input) {
             setTimeout(() => input.focus(), 100);
           }

@@ -54,11 +54,12 @@ export class ConfirmationDialog {
       const dialogConfig = {
         window: {
           title: dialogData.title,
-          icon: dialogData.icon,
+          icon: dialogData.icon
         },
         position: {
-          width: 400,
+          width: 400
         },
+        modal: false,
         content: htmlContent,
         buttons: [
           {

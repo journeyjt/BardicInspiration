@@ -25,44 +25,108 @@ export class LoadQueueDialog {
     const sortedQueues = [...savedQueues].sort((a, b) => a.name.localeCompare(b.name));
     
     const htmlContent = `
-      <div class="bardic-load-queue-dialog">
-        <div class="dialog-content">
-          <div class="form-group">
-            <label for="savedQueue">
+      <div class="bardic-load-queue-dialog modern">
+        <div class="dialog-header">
+          <div class="header-content">
+            <div class="header-icon">
+              <i class="fas fa-folder-open"></i>
+            </div>
+            <div class="header-text">
+              <h3>Load Saved Queue</h3>
+              <p>Choose a queue to load and set how it should be added</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="dialog-body">
+          <div class="queue-selection-section">
+            <div class="section-header">
               <i class="fas fa-list"></i>
-              Select Queue
-            </label>
-            <select name="savedQueue" id="savedQueue" class="bardic-select">
-              ${sortedQueues.map(q => `
-                <option value="${q.id}" data-queue-name="${q.name}">
-                  ${q.name} (${q.items.length} tracks)
-                </option>
-              `).join('')}
-            </select>
-            <p class="notes">Choose a saved queue to load</p>
+              <span>Available Queues</span>
+            </div>
+            
+            <div class="queue-selector">
+              <select name="savedQueue" id="savedQueue" class="modern-select">
+                ${sortedQueues.map(q => {
+                  const createdDate = new Date(q.createdAt).toLocaleDateString();
+                  return `
+                    <option value="${q.id}" data-queue-name="${q.name}">
+                      ${q.name}
+                    </option>
+                  `;
+                }).join('')}
+              </select>
+              
+              <div class="selected-queue-display" id="selectedQueueDisplay">
+                <div class="queue-card">
+                  <div class="queue-header">
+                    <div class="queue-icon">
+                      <i class="fas fa-list-ul"></i>
+                    </div>
+                    <div class="queue-title">
+                      <h4 id="selectedQueueName">${sortedQueues[0]?.name || 'No queue selected'}</h4>
+                      <p>Selected Queue</p>
+                    </div>
+                  </div>
+                  
+                  <div class="queue-details">
+                    <div class="detail-row">
+                      <span class="detail-label">Tracks:</span>
+                      <span class="detail-value" id="trackCount">${sortedQueues[0]?.items.length || 0}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Created by:</span>
+                      <span class="detail-value" id="createdBy">${sortedQueues[0]?.createdBy || 'Unknown'}</span>
+                    </div>
+                    <div class="detail-row">
+                      <span class="detail-label">Date:</span>
+                      <span class="detail-value" id="createdDate">${sortedQueues[0] ? new Date(sortedQueues[0].createdAt).toLocaleDateString() : 'Unknown'}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </div>
-          
-          <div class="form-group">
-            <label class="radio-label">
-              <input type="radio" name="loadMode" value="replace" checked>
-              <span>
-                <i class="fas fa-exchange-alt"></i>
-                Replace current queue
-              </span>
-            </label>
-            <label class="radio-label">
-              <input type="radio" name="loadMode" value="append">
-              <span>
-                <i class="fas fa-plus"></i>
-                Add to current queue
-              </span>
-            </label>
+
+          <div class="load-mode-section">
+            <div class="section-header">
+              <i class="fas fa-cog"></i>
+              <span>Loading Options</span>
+            </div>
+            
+            <div class="mode-options">
+              <label class="mode-option replace-mode">
+                <input type="radio" name="loadMode" value="replace" checked>
+                <div class="option-content">
+                  <div class="option-header">
+                    <i class="fas fa-exchange-alt"></i>
+                    <span>Replace Current Queue</span>
+                  </div>
+                  <p class="option-description">Clear the current queue and load this one</p>
+                </div>
+              </label>
+              
+              <label class="mode-option append-mode">
+                <input type="radio" name="loadMode" value="append">
+                <div class="option-content">
+                  <div class="option-header">
+                    <i class="fas fa-plus"></i>
+                    <span>Add to Current Queue</span>
+                  </div>
+                  <p class="option-description">Keep current queue and add these tracks to the end</p>
+                </div>
+              </label>
+            </div>
           </div>
-          
-          <div class="form-group queue-actions">
-            <button type="button" class="control-btn danger-btn delete-queue-btn" title="Delete selected queue">
+
+          <div class="danger-zone">
+            <div class="section-header danger">
+              <i class="fas fa-exclamation-triangle"></i>
+              <span>Danger Zone</span>
+            </div>
+            <button type="button" class="danger-btn delete-queue-btn">
               <i class="fas fa-trash"></i>
-              Delete Selected Queue
+              <span>Delete Selected Queue</span>
             </button>
           </div>
         </div>
@@ -77,11 +141,12 @@ export class LoadQueueDialog {
       const dialogConfig = {
         window: {
           title: "Load Saved Queue",
-          icon: "fas fa-folder-open",
+          icon: "fas fa-folder-open"
         },
         position: {
-          width: 450,
+          width: 450
         },
+        modal: false,
         content: htmlContent,
         buttons: [
           {
@@ -113,13 +178,44 @@ export class LoadQueueDialog {
         render: (element: HTMLElement, dialog: any) => {
           dialogInstance = dialog;
           
-          // Add bardic-inspiration class to dialog for theming
-          element.closest('.dialog-v2')?.classList.add('bardic-dialog');
+          // Get the actual DOM element - DialogV2 might pass different parameters
+          const domElement = element?.element?.[0] || element?.element || element;
+          const actualDialog = dialog || element;
           
-          // Handle delete button
-          const deleteBtn = element.querySelector('.delete-queue-btn');
+          // Add bardic-inspiration class to dialog for theming - with safety check
+          if (domElement && typeof domElement.closest === 'function') {
+            domElement.closest('.dialog-v2')?.classList.add('bardic-dialog');
+          } else if (actualDialog?.element && typeof actualDialog.element.closest === 'function') {
+            actualDialog.element.closest('.dialog-v2')?.classList.add('bardic-dialog');
+          }
+          
+          // Add queue selection change listener for preview update
+          const selectElement = (domElement?.querySelector ? domElement.querySelector('#savedQueue') : actualDialog?.element?.querySelector('#savedQueue')) as HTMLSelectElement;
+          const updatePreview = () => {
+            const selectedOption = selectElement?.selectedOptions[0];
+            if (selectedOption) {
+              const queueId = selectedOption.value;
+              const selectedQueue = sortedQueues.find(q => q.id === queueId);
+              if (selectedQueue) {
+                const selectedQueueNameEl = domElement?.querySelector ? domElement.querySelector('#selectedQueueName') : actualDialog?.element?.querySelector('#selectedQueueName');
+                const trackCountEl = domElement?.querySelector ? domElement.querySelector('#trackCount') : actualDialog?.element?.querySelector('#trackCount');
+                const createdByEl = domElement?.querySelector ? domElement.querySelector('#createdBy') : actualDialog?.element?.querySelector('#createdBy');
+                const createdDateEl = domElement?.querySelector ? domElement.querySelector('#createdDate') : actualDialog?.element?.querySelector('#createdDate');
+                
+                if (selectedQueueNameEl) selectedQueueNameEl.textContent = selectedQueue.name;
+                if (trackCountEl) trackCountEl.textContent = selectedQueue.items.length.toString();
+                if (createdByEl) createdByEl.textContent = selectedQueue.createdBy;
+                if (createdDateEl) createdDateEl.textContent = new Date(selectedQueue.createdAt).toLocaleDateString();
+              }
+            }
+          };
+          
+          selectElement?.addEventListener('change', updatePreview);
+
+          // Handle delete button - use the proper DOM element
+          const deleteBtn = domElement?.querySelector ? domElement.querySelector('.delete-queue-btn') : actualDialog?.element?.querySelector('.delete-queue-btn');
           deleteBtn?.addEventListener('click', async () => {
-            const selectElement = element.querySelector('#savedQueue') as HTMLSelectElement;
+            const selectElement = (domElement?.querySelector ? domElement.querySelector('#savedQueue') : actualDialog?.element?.querySelector('#savedQueue')) as HTMLSelectElement;
             const queueId = selectElement?.value;
             const selectedOption = selectElement?.selectedOptions[0];
             const queueName = selectedOption?.getAttribute('data-queue-name') || 'this queue';
@@ -147,6 +243,7 @@ export class LoadQueueDialog {
               try {
                 const savedQueuesManager = (globalThis as any).youtubeDJSavedQueuesManager as SavedQueuesManager;
                 if (savedQueuesManager) {
+                  logger.debug('🎵 YouTube DJ | Deleting queue:', { queueId, queueName });
                   await savedQueuesManager.deleteSavedQueue(queueId);
                   
                   // Remove the option from the select
@@ -157,12 +254,14 @@ export class LoadQueueDialog {
                     ui.notifications?.info('No more saved queues');
                     dialogInstance?.close();
                   }
+                  ui.notifications?.success(`Queue "${queueName}" deleted`);
                 } else {
+                  logger.error('🎵 YouTube DJ | SavedQueuesManager not found in global scope');
                   ui.notifications?.error('Saved queues manager not available');
                 }
-              } catch (error) {
+              } catch (error: any) {
                 logger.error('🎵 YouTube DJ | Failed to delete queue:', error);
-                ui.notifications?.error('Failed to delete queue');
+                ui.notifications?.error(`Failed to delete queue: ${error.message || 'Unknown error'}`);
               }
             }
           });

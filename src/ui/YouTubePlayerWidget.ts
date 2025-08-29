@@ -171,7 +171,13 @@ export class YouTubePlayerWidget {
     // Update header controls based on session state
     const widgetControls = this.widgetElement.querySelector('.widget-controls');
     if (widgetControls) {
+      const isDJ = state.session.djUserId === game.user?.id;
       widgetControls.innerHTML = hasJoinedSession ? `
+        ${isDJ ? `
+          <button class="widget-btn playback-control" onclick="window.youtubeDJWidget?.togglePlayPause()" title="${isPlaying ? 'Pause' : 'Play'}">
+            <i class="fas fa-${isPlaying ? 'pause' : 'play'}"></i>
+          </button>
+        ` : ''}
         <button class="widget-btn" onclick="game.modules.get('bardic-inspiration').api.openYoutubeDJ()" title="Open DJ Controls">
           <i class="fas fa-sliders-h"></i>
         </button>
@@ -497,6 +503,15 @@ export class YouTubePlayerWidget {
           background: #c82333;
         }
         
+        .widget-btn.playback-control {
+          background: #28a745;
+          min-width: 28px;
+        }
+        
+        .widget-btn.playback-control:hover {
+          background: #218838;
+        }
+        
         .current-video {
           font-size: 10px;
           color: #bbb;
@@ -609,6 +624,11 @@ export class YouTubePlayerWidget {
         </div>
         <div class="widget-controls">
           ${hasJoinedSession ? `
+            ${state.session.djUserId === game.user?.id ? `
+              <button class="widget-btn playback-control" onclick="window.youtubeDJWidget?.togglePlayPause()" title="${isPlaying ? 'Pause' : 'Play'}">
+                <i class="fas fa-${isPlaying ? 'pause' : 'play'}"></i>
+              </button>
+            ` : ''}
             <button class="widget-btn" onclick="game.modules.get('bardic-inspiration').api.openYoutubeDJ()" title="Open DJ Controls">
               <i class="fas fa-sliders-h"></i>
             </button>
@@ -1827,7 +1847,11 @@ export class YouTubePlayerWidget {
       if (event.changes.session?.members !== undefined || event.changes.session?.djUserId !== undefined) {
         logger.debug('🎵  Updating member/DJ status (no re-render)');
         logger.debug('🎵 YouTube DJ | Widget updating for member/DJ changes without re-render');
-        // Could add specific member/DJ status updates here if needed
+        
+        // Update controls when DJ status changes
+        if (event.changes.session?.djUserId !== undefined) {
+          this.updateWidgetSelectively(this.store.getState());
+        }
       } else {
         logger.debug('🎵  Updating other elements (no re-render)');
         logger.debug('🎵 YouTube DJ | Widget updating specific elements for player state change');
@@ -1839,13 +1863,29 @@ export class YouTubePlayerWidget {
    * Update compact status display without re-rendering
    */
   private updateCompactStatus(event: StateChangeEvent): void {
-    if (!this.isMinimized()) return;
+    const state = this.store.getState();
+    const isPlaying = state.player.playbackState === 'playing';
+    const isDJ = state.session.djUserId === game.user?.id;
     
-    const compactStatus = this.widgetElement?.querySelector('.compact-status i');
-    if (compactStatus && event.changes.player?.playbackState !== undefined) {
-      const isPlaying = this.store.getPlayerState().playbackState === 'playing';
-      compactStatus.className = `fas fa-${isPlaying ? 'play' : 'pause'}`;
-      compactStatus.style.color = isPlaying ? '#28a745' : '#ffc107';
+    // Update compact status icon when minimized
+    if (this.isMinimized()) {
+      const compactStatus = this.widgetElement?.querySelector('.compact-status i');
+      if (compactStatus && event.changes.player?.playbackState !== undefined) {
+        compactStatus.className = `fas fa-${isPlaying ? 'play' : 'pause'}`;
+        compactStatus.style.color = isPlaying ? '#28a745' : '#ffc107';
+      }
+    }
+    
+    // Update play/pause button for DJ regardless of minimized state
+    if (isDJ && event.changes.player?.playbackState !== undefined) {
+      const playPauseBtn = this.widgetElement?.querySelector('.widget-btn.playback-control');
+      if (playPauseBtn) {
+        const icon = playPauseBtn.querySelector('i');
+        if (icon) {
+          icon.className = `fas fa-${isPlaying ? 'pause' : 'play'}`;
+        }
+        playPauseBtn.setAttribute('title', isPlaying ? 'Pause' : 'Play');
+      }
     }
   }
 
@@ -1856,8 +1896,16 @@ export class YouTubePlayerWidget {
     // Update controls section to show DJ controls and leave button
     const controlsSection = this.widgetElement?.querySelector('.widget-controls');
     if (controlsSection) {
-      const playerState = this.store.getPlayerState();
+      const state = this.store.getState();
+      const isDJ = state.session.djUserId === game.user?.id;
+      const isPlaying = state.player.playbackState === 'playing';
+      
       controlsSection.innerHTML = `
+        ${isDJ ? `
+          <button class="widget-btn playback-control" onclick="window.youtubeDJWidget?.togglePlayPause()" title="${isPlaying ? 'Pause' : 'Play'}">
+            <i class="fas fa-${isPlaying ? 'pause' : 'play'}"></i>
+          </button>
+        ` : ''}
         <button class="widget-btn" onclick="game.modules.get('bardic-inspiration').api.openYoutubeDJ()" title="Open DJ Controls">
           <i class="fas fa-sliders-h"></i>
         </button>
@@ -2232,6 +2280,56 @@ export class YouTubePlayerWidget {
       
       // Clear the flag even on error
       this.isJoiningSession = false;
+    }
+  }
+
+  /**
+   * Toggle play/pause for the DJ
+   */
+  async togglePlayPause(): Promise<void> {
+    logger.debug('🎵 YouTube DJ | Toggling play/pause from widget...');
+    
+    try {
+      const state = this.store.getState();
+      
+      // Only DJ can control playback
+      if (state.session.djUserId !== game.user?.id) {
+        ui.notifications?.warn('Only the DJ can control playback');
+        return;
+      }
+      
+      const isPlaying = state.player.playbackState === 'playing';
+      
+      // Get PlayerManager instance from global
+      const playerManager = (globalThis as any).youtubeDJPlayerManager;
+      if (!playerManager) {
+        logger.error('🎵 YouTube DJ | PlayerManager not available');
+        return;
+      }
+      
+      logger.debug('🎵 YouTube DJ | Current playback state:', isPlaying ? 'playing' : 'paused');
+      
+      // Use PlayerManager's play/pause methods
+      try {
+        if (isPlaying) {
+          logger.debug('🎵 YouTube DJ | Calling pause...');
+          await playerManager.pause();
+        } else {
+          logger.debug('🎵 YouTube DJ | Calling play...');
+          await playerManager.play();
+        }
+      } catch (playError) {
+        // If play fails due to no video, show a more helpful message
+        if (playError.message?.includes('No video loaded')) {
+          ui.notifications?.warn('No video in queue. Add videos to the queue first.');
+        } else {
+          throw playError;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to toggle playback:', error);
+      ui.notifications?.error(`Failed to toggle playback: ${error.message || 'Unknown error'}`);
     }
   }
 
