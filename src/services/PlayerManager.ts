@@ -7,6 +7,7 @@ import { SessionStore } from '../state/SessionStore.js';
 import { VideoInfo, HeartbeatData, StateChangeEvent } from '../state/StateTypes.js';
 import { logger } from '../lib/logger.js';
 import { PlaybackStrategyFactory } from './PlaybackStrategy.js';
+import { HeartbeatBuilder, HeartbeatSender } from './HeartbeatService.js';
 
 export interface YouTubeDJMessage {
   type: string;
@@ -416,106 +417,27 @@ export class PlayerManager {
   /**
    * Send heartbeat to other players
    */
+  /**
+   * Send heartbeat for synchronization
+   * Refactored to use HeartbeatService for reduced complexity
+   */
   private async sendHeartbeat(): Promise<void> {
     if (!this.store.isDJ()) {
       return;
     }
 
-    // Continue heartbeats even when player is not ready for session activity tracking
     try {
-      const playerState = this.store.getPlayerState();
-      const currentVideo = playerState.currentVideo;
-      const isPlaying = playerState.playbackState === 'playing';
-
-      // Request current time from widget player (only if player is ready)
-      let currentTime = playerState.currentTime || 0;
-      let playlistIndex: number | undefined;
-      let playlistId: string | undefined;
+      // Build heartbeat data using service
+      const heartbeatBuilder = new HeartbeatBuilder(this.store);
+      const heartbeat = await heartbeatBuilder.build();
       
-      if (playerState.isReady) {
-        try {
-          // Emit request for current time and wait for response
-          const timeRequest = new Promise<number>((resolve) => {
-            const timeout = setTimeout(() => resolve(currentTime), 100); // 100ms timeout, fallback to stored time
-            
-            const timeHandler = (data: { currentTime: number }) => {
-              clearTimeout(timeout);
-              Hooks.off('youtubeDJ.currentTimeResponse', timeHandler);
-              resolve(data.currentTime);
-            };
-            
-            Hooks.on('youtubeDJ.currentTimeResponse', timeHandler);
-            Hooks.callAll('youtubeDJ.getCurrentTimeRequest');
-          });
-          
-          currentTime = await timeRequest;
-          
-          // Also request playlist index if playing a playlist
-          const queueState = this.store.getQueueState();
-          const currentItem = queueState.items[queueState.currentIndex];
-          if (currentItem?.isPlaylist) {
-            playlistId = currentItem.playlistId;
-            const indexRequest = new Promise<number | undefined>((resolve) => {
-              const timeout = setTimeout(() => resolve(undefined), 100);
-              
-              const indexHandler = (data: { playlistIndex: number }) => {
-                clearTimeout(timeout);
-                Hooks.off('youtubeDJ.playlistIndexResponse', indexHandler);
-                resolve(data.playlistIndex);
-              };
-              
-              Hooks.on('youtubeDJ.playlistIndexResponse', indexHandler);
-              Hooks.callAll('youtubeDJ.getPlaylistIndexRequest');
-            });
-            
-            playlistIndex = await indexRequest;
-          }
-        } catch (error) {
-          logger.debug('🎵 YouTube DJ | Failed to get current time from widget, using stored time:', currentTime);
-        }
-      }
-
-      const heartbeat: HeartbeatData = {
-        videoId: currentVideo?.videoId || '',
-        currentTime,
-        duration: playerState.duration || 0,
-        isPlaying,
-        timestamp: Date.now(),
-        serverTime: Date.now(),
-        playlistId,
-        playlistIndex
-      };
+      // Send heartbeat using service
+      const heartbeatSender = new HeartbeatSender(
+        this.store,
+        this.broadcastMessage.bind(this)
+      );
+      await heartbeatSender.send(heartbeat);
       
-      // Debug log for playlist heartbeats
-      if (playlistId) {
-        logger.debug('🎵 YouTube DJ | Sending playlist heartbeat:', {
-          playlistId,
-          playlistIndex,
-          videoId: currentVideo?.videoId,
-          currentTime,
-          isPlaying
-        });
-      }
-
-      // Update stored current time
-      this.store.updateState({
-        player: {
-          ...playerState,
-          currentTime,
-          lastHeartbeat: heartbeat
-        }
-      });
-
-      // Broadcast heartbeat
-      this.broadcastMessage({
-        type: 'HEARTBEAT',
-        userId: game.user?.id || '',
-        timestamp: Date.now(),
-        data: heartbeat
-      });
-      
-      // Activity tracking is now handled by HeartbeatResponseHandler in SocketManager
-
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to send heartbeat:', error);
     }
