@@ -1,14 +1,11 @@
 /**
  * YouTube Player Widget - Injected above player list (inspired by TheRipper93's approach)
  * Handles only the YouTube iframe player, isolated from other UI updates
- * 
- * REFACTORED: Now uses component-based architecture via YouTubeWidgetAdapter
  */
 
 import { logger } from '../lib/logger.js';
 import { SessionStore } from '../state/SessionStore.js';
 import { StateChangeEvent, VideoInfo } from '../state/StateTypes.js';
-import { YouTubeWidgetAdapter } from './player/YouTubeWidgetAdapter.js';
 
 export class YouTubePlayerWidget {
   private static instance: YouTubePlayerWidget | null = null;
@@ -23,12 +20,6 @@ export class YouTubePlayerWidget {
   private commandQueue: Array<{ command: string; args?: any[] }> = []; // Queue for commands during player recreation
   private isDestroyed: boolean = false;
   private activeTimers: Set<NodeJS.Timeout> = new Set();
-  private volumeDebounceTimer: NodeJS.Timeout | null = null;
-  private lastVolumeValue: number = 50;
-  
-  // NEW: Component-based player adapter
-  private adapter: YouTubeWidgetAdapter | null = null;
-  private useAdapter: boolean = true; // Feature flag to enable/disable adapter
 
   constructor() {
     this.store = SessionStore.getInstance();
@@ -719,55 +710,6 @@ export class YouTubePlayerWidget {
    * Initialize YouTube player in the widget
    */
   private async initializePlayer(): Promise<void> {
-    // NEW: Use adapter if enabled
-    if (this.useAdapter) {
-      logger.debug('🎵 YouTube DJ | Using new component-based player adapter');
-      
-      // If adapter is already initialized, check if it's functional
-      if (this.adapter?.isReady()) {
-        logger.debug('🎵 YouTube DJ | Adapter already initialized and functional');
-        this.isPlayerReady = true;
-        return;
-      }
-      
-      // First ensure the container exists - this is critical!
-      const container = document.getElementById(this.containerId);
-      if (!container) {
-        logger.warn('🎵 YouTube DJ | Container not found for adapter, falling back to legacy');
-        this.useAdapter = false;
-        // Continue with legacy initialization below
-      } else {
-        try {
-          // Initialize adapter if not already done
-          if (!this.adapter) {
-            this.adapter = new YouTubeWidgetAdapter(this.containerId, this.store, true);
-          }
-          
-          // Wait for adapter initialization - it will handle its own container finding
-          await this.adapter.initialize();
-          this.isPlayerReady = true;
-          
-          // Process any queued commands
-          if (this.commandQueue.length > 0) {
-            logger.debug(`🎵 YouTube DJ | Processing ${this.commandQueue.length} queued commands`);
-            const queue = [...this.commandQueue];
-            this.commandQueue = [];
-            for (const cmd of queue) {
-              await this.onPlayerCommand(cmd);
-            }
-          }
-          
-          logger.info('🎵 YouTube DJ | Player adapter initialized successfully');
-          return;
-        } catch (error) {
-          logger.error('🎵 YouTube DJ | Failed to initialize adapter, falling back to legacy player:', error);
-          this.useAdapter = false;
-          // Continue with legacy initialization below
-        }
-      }
-    }
-    
-    // LEGACY: Original player initialization
     // If player is ready and working, don't reinitialize
     if (this.isPlayerReady && this.player) {
       // Check if player is actually functional
@@ -1565,12 +1507,6 @@ export class YouTubePlayerWidget {
    * Handle request for current playback time
    */
   private onGetCurrentTimeRequest(): void {
-    // If adapter is active, let it handle the request instead
-    if (this.adapter && this.isPlayerReady) {
-      // Adapter will handle this request
-      return;
-    }
-
     if (!this.player || !this.isPlayerReady) {
       // Return stored time if player not ready
       const storedTime = this.store.getPlayerState().currentTime || 0;
@@ -1593,12 +1529,6 @@ export class YouTubePlayerWidget {
    * Handle playlist index request for heartbeat
    */
   private onGetPlaylistIndexRequest(): void {
-    // If adapter is active, let it handle the request instead
-    if (this.adapter && this.isPlayerReady) {
-      // Adapter will handle this request
-      return;
-    }
-
     if (!this.player || !this.isPlayerReady) {
       // No playlist index if player not ready
       Hooks.callAll('youtubeDJ.playlistIndexResponse', { playlistIndex: undefined });
@@ -1622,69 +1552,6 @@ export class YouTubePlayerWidget {
   private async onPlayerCommand(data: { command: string; args?: any[] }): Promise<void> {
     logger.debug('🎵 YouTube DJ | Received player command:', data.command);
     
-    // NEW: Use adapter if enabled
-    if (this.useAdapter && this.adapter) {
-      // If adapter exists but not ready, queue the command
-      if (!this.adapter.isReady()) {
-        logger.debug('🎵 YouTube DJ | Adapter not ready, queueing command:', data.command);
-        this.commandQueue.push(data);
-        return;
-      }
-      
-      logger.debug('🎵 YouTube DJ | Routing command through adapter:', data.command);
-      
-      // Map legacy commands to adapter methods
-      try {
-        switch (data.command) {
-          case 'playVideo':
-            await this.adapter.play();
-            break;
-          case 'pauseVideo':
-            await this.adapter.pause();
-            break;
-          case 'seekTo':
-            if (data.args && data.args[0] !== undefined) {
-              await this.adapter.seekTo(data.args[0], data.args[1] ?? true);
-            }
-            break;
-          case 'loadVideo':
-          case 'loadVideoById':
-            if (data.args && data.args[0]) {
-              await this.adapter.loadVideoById(data.args[0], data.args[1] ?? 0);
-            }
-            break;
-          case 'cueVideo':
-          case 'cueVideoById':
-            if (data.args && data.args[0]) {
-              await this.adapter.cueVideoById(data.args[0], data.args[1] ?? 0);
-            }
-            break;
-          case 'setVolume':
-            if (data.args && data.args[0] !== undefined) {
-              await this.adapter.setVolume(data.args[0]);
-            }
-            break;
-          case 'mute':
-            await this.adapter.mute();
-            break;
-          case 'unMute':
-            await this.adapter.unMute();
-            break;
-          case 'stopVideo':
-            await this.adapter.stopVideo();
-            break;
-          default:
-            // Queue unknown commands for adapter to handle
-            this.adapter.queueCommand(data.command, data.args);
-        }
-        return;
-      } catch (error) {
-        logger.error('🎵 YouTube DJ | Adapter command failed:', error);
-        // Fall through to legacy handling
-      }
-    }
-    
-    // LEGACY: Original command handling
     // If player is initializing, queue the command
     if (this.store.getPlayerState().isInitializing) {
       logger.debug('🎵 YouTube DJ | Player is initializing, queueing command:', data.command);
@@ -2106,31 +1973,6 @@ export class YouTubePlayerWidget {
       return;
     }
 
-    // Use adapter if available
-    if (this.useAdapter && this.adapter) {
-      try {
-        const isMuted = this.adapter.isMuted();
-        if (isMuted) {
-          this.adapter.unMute();
-          logger.debug('🎵 YouTube DJ | Player unmuted via adapter');
-          // Save the new mute state
-          game.settings.set('bardic-inspiration', 'youtubeDJ.userMuted', false);
-        } else {
-          this.adapter.mute();
-          logger.debug('🎵 YouTube DJ | Player muted via adapter');
-          // Save the new mute state
-          game.settings.set('bardic-inspiration', 'youtubeDJ.userMuted', true);
-        }
-        
-        // Update the mute button icon without full re-render (small delay to let player update)
-        setTimeout(() => this.updateMuteButton(), 50);
-        return;
-      } catch (error) {
-        logger.error('🎵 YouTube DJ | Failed to toggle mute via adapter:', error);
-        return;
-      }
-    }
-
     if (!this.player || !this.isPlayerReady) {
       logger.warn('🎵 YouTube DJ | Cannot toggle mute - player not ready');
       return;
@@ -2143,11 +1985,9 @@ export class YouTubePlayerWidget {
       if (currentlyMuted) {
         this.player.unMute();
         logger.debug('🎵 YouTube DJ | Player unmuted via widget');
-        game.settings.set('bardic-inspiration', 'youtubeDJ.userMuted', false);
       } else {
         this.player.mute();
         logger.debug('🎵 YouTube DJ | Player muted via widget');
-        game.settings.set('bardic-inspiration', 'youtubeDJ.userMuted', true);
       }
 
       // Get the actual mute state after the change to ensure sync
@@ -2158,7 +1998,7 @@ export class YouTubePlayerWidget {
       // Legacy state update removed
 
       // Update the mute button icon without full re-render (small delay to let player update)
-      setTimeout(() => this.updateMuteButton(), 50);
+      setTimeout(() => this.updateMuteButton(), 10);
 
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to toggle mute:', error);
@@ -2194,16 +2034,7 @@ export class YouTubePlayerWidget {
     // Query the actual YouTube player state instead of relying on stored state
     let actualMuteState = false;
     
-    // Use adapter if available
-    if (this.useAdapter && this.adapter) {
-      try {
-        actualMuteState = this.adapter.isMuted();
-      } catch (error) {
-        // Fallback to client setting if adapter query fails
-        actualMuteState = this.getUserMuteState();
-        logger.debug('🎵 YouTube DJ | Failed to query adapter mute state, using client setting:', error);
-      }
-    } else if (this.player && this.isPlayerReady) {
+    if (this.player && this.isPlayerReady) {
       try {
         actualMuteState = this.player.isMuted();
       } catch (error) {
@@ -2964,11 +2795,10 @@ export class YouTubePlayerWidget {
       case 'PLAY':
         logger.debug('🎵 YouTube DJ | Received PLAY command from DJ');
         
-        // For playlists, we might need to wait for loading
+        // Check if we're dealing with a playlist that might still be loading
         const currentQueue = this.store.getQueueState();
         const currentItem = currentQueue.items[currentQueue.currentIndex];
-        if (currentItem?.isPlaylist && !this.useAdapter) {
-          // Only check playlist for legacy player
+        if (currentItem?.isPlaylist) {
           const playlist = this.player?.getPlaylist?.();
           if (!playlist || playlist.length === 0) {
             logger.debug('🎵 YouTube DJ | Playlist not ready yet, delaying play command');
@@ -2991,15 +2821,8 @@ export class YouTubePlayerWidget {
         this.onPlayerCommand({ command: 'seekTo', args: [message.data?.time, true] });
         break;
       case 'LOAD':
-        // Use loadVideoById if autoPlay is true (default), cueVideoById if false
-        const loadCommand = message.data?.autoPlay === false ? 'cueVideoById' : 'loadVideoById';
-        logger.debug('🎵 YouTube DJ | Received LOAD command from DJ:', {
-          videoId: message.data?.videoId,
-          autoPlay: message.data?.autoPlay,
-          command: loadCommand
-        });
         this.onPlayerCommand({ 
-          command: loadCommand, 
+          command: 'loadVideoById', 
           args: [message.data?.videoId, message.data?.startTime || 0] 
         });
         break;
@@ -3077,21 +2900,13 @@ export class YouTubePlayerWidget {
   /**
    * Cleanup
    */
-  async destroy(): Promise<void> {
+  destroy(): void {
     this.isDestroyed = true;
     
     // Clear all active timers
     this.activeTimers.forEach(timer => clearTimeout(timer));
     this.activeTimers.clear();
     
-    // NEW: Cleanup adapter if it exists
-    if (this.adapter) {
-      logger.debug('🎵 YouTube DJ | Destroying player adapter');
-      await this.adapter.destroy();
-      this.adapter = null;
-    }
-    
-    // LEGACY: Cleanup original player
     if (this.player) {
       if (typeof this.player.destroy === 'function') {
         this.player.destroy();
@@ -3125,70 +2940,47 @@ export class YouTubePlayerWidget {
    * Handle volume slider change
    */
   onVolumeChange(event: Event): void {
+    logger.debug('🎵 YouTube DJ | onVolumeChange called', { event: event.type, target: event.target });
+    
     const slider = event.target as HTMLInputElement;
     const volume = parseInt(slider.value, 10);
     
-    // Clear existing debounce timer
-    if (this.volumeDebounceTimer) {
-      clearTimeout(this.volumeDebounceTimer);
-    }
+    logger.debug('🎵 YouTube DJ | Volume change details:', {
+      sliderValue: slider.value,
+      parsedVolume: volume,
+      playerReady: this.isPlayerReady,
+      hasPlayer: !!this.player
+    });
     
-    // Debounce volume changes to prevent command flooding
-    this.volumeDebounceTimer = setTimeout(() => {
-      logger.debug('🎵 YouTube DJ | Volume change (debounced):', volume);
+    if (!this.player || !this.isPlayerReady) {
+      logger.warn('🎵 YouTube DJ | Cannot change volume - player not ready', {
+        player: !!this.player,
+        isReady: this.isPlayerReady
+      });
+      return;
+    }
+
+    try {
+      logger.debug(`🎵 YouTube DJ | Calling player.setVolume(${volume})`);
       
-      // Use adapter if available
-      if (this.useAdapter && this.adapter) {
-        try {
-          this.adapter.setVolume(volume);
-          
-          // Store in user settings
-          game.settings.set('bardic-inspiration', 'youtubeDJ.userVolume', volume);
-          
-          // Only unmute if transitioning from 0 to positive volume
-          const wasZero = this.lastVolumeValue === 0;
-          const isPositive = volume > 0;
-          if (wasZero && isPositive && this.adapter.isMuted()) {
-            this.adapter.unMute();
-            this.updateMuteButton();
-          }
-          
-          this.lastVolumeValue = volume;
-          return;
-        } catch (error) {
-          logger.error('🎵 YouTube DJ | Failed to set volume via adapter:', error);
-          return;
-        }
-      }
+      // Update YouTube player volume
+      this.player.setVolume(volume);
       
-      // Legacy player handling
-      if (!this.player || !this.isPlayerReady) {
-        logger.warn('🎵 YouTube DJ | Cannot change volume - player not ready', {
-          player: !!this.player,
-          isReady: this.isPlayerReady
-        });
-        return;
-      }
+      // Verify the volume was actually set
+      const actualVolume = this.player.getVolume();
+      logger.debug(`🎵 YouTube DJ | Volume set result - requested: ${volume}, actual: ${actualVolume}`);
       
-      try {
-        this.player.setVolume(volume);
-        
-        // Store in user settings
-        game.settings.set('bardic-inspiration', 'youtubeDJ.userVolume', volume);
-        
-        // Only unmute if transitioning from 0 to positive volume
-        const wasZero = this.lastVolumeValue === 0;
-        const isPositive = volume > 0;
-        if (wasZero && isPositive && this.player.isMuted()) {
-          this.player.unMute();
-          this.updateMuteButton();
-        }
-        
-        this.lastVolumeValue = volume;
-      } catch (error) {
-        logger.error('🎵 YouTube DJ | Failed to set volume:', error);
-      }
-    }, 100); // 100ms debounce delay
+      // Store volume in client settings
+      this.setUserVolume(volume);
+
+      // Update tooltip
+      slider.setAttribute('title', `Volume: ${volume}%`);
+      
+      logger.debug(`🎵 YouTube DJ | Volume change completed successfully: ${volume}%`);
+
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to change volume:', error);
+    }
   }
 
   /**

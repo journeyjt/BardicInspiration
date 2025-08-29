@@ -14,19 +14,33 @@ export class TimeRequestService {
   /**
    * Request current playback time from widget with timeout
    */
-  static async requestCurrentTime(fallbackTime: number = 0, timeout: number = 100): Promise<number> {
+  static async requestCurrentTime(fallbackTime: number = 0, timeout: number = 500): Promise<number> {
     return new Promise<number>((resolve) => {
+      let responseReceived = false;
+      
       const timeoutHandle = setTimeout(() => {
-        logger.debug('🎵 YouTube DJ | Current time request timed out, using fallback:', fallbackTime);
-        resolve(fallbackTime);
+        if (!responseReceived) {
+          logger.debug('🎵 YouTube DJ | Current time request timed out, using fallback:', fallbackTime);
+          resolve(fallbackTime);
+        }
       }, timeout);
       
       const timeHandler = (data: { currentTime: number }) => {
+        if (responseReceived) return;
+        responseReceived = true;
         clearTimeout(timeoutHandle);
         Hooks.off('youtubeDJ.currentTimeResponse', timeHandler);
+        logger.debug('🎵 YouTube DJ | TimeRequestService received data:', { 
+          hasData: !!data, 
+          currentTime: data?.currentTime, 
+          dataType: typeof data?.currentTime,
+          fullData: data 
+        });
+        logger.debug('🎵 YouTube DJ | Received live current time from adapter:', data.currentTime);
         resolve(data.currentTime);
       };
       
+      logger.debug('🎵 YouTube DJ | Requesting current time from adapter...');
       Hooks.on('youtubeDJ.currentTimeResponse', timeHandler);
       Hooks.callAll('youtubeDJ.getCurrentTimeRequest');
     });
@@ -35,7 +49,7 @@ export class TimeRequestService {
   /**
    * Request playlist index from widget with timeout
    */
-  static async requestPlaylistIndex(timeout: number = 100): Promise<number | undefined> {
+  static async requestPlaylistIndex(timeout: number = 500): Promise<number | undefined> {
     return new Promise<number | undefined>((resolve) => {
       const timeoutHandle = setTimeout(() => {
         logger.debug('🎵 YouTube DJ | Playlist index request timed out');
@@ -58,18 +72,46 @@ export class TimeRequestService {
  * Builds heartbeat data from current state
  */
 export class HeartbeatBuilder {
+  private isBuilding = false;
+  
   constructor(private store: SessionStore) {}
 
   /**
    * Build heartbeat data from current player state
    */
   async build(): Promise<HeartbeatData> {
-    const playerState = this.store.getPlayerState();
-    const currentVideo = playerState.currentVideo;
-    const isPlaying = playerState.playbackState === 'playing';
+    // Prevent concurrent heartbeat building
+    if (this.isBuilding) {
+      logger.debug('🎵 YouTube DJ | Heartbeat build already in progress, skipping');
+      throw new Error('Heartbeat build already in progress');
+    }
     
-    // Get current time
+    this.isBuilding = true;
+    
+    try {
+      const playerState = this.store.getPlayerState();
+      const currentVideo = playerState.currentVideo;
+    
+    logger.debug('🎵 YouTube DJ | Building heartbeat for:', currentVideo?.title);
+    
+    // Get live state from YouTube player - don't rely on stored state to prevent loops
+    let isPlaying = playerState.playbackState === 'playing'; // fallback
     let currentTime = await this.getCurrentTime(playerState);
+    
+    logger.debug('🎵 YouTube DJ | Stored state fallbacks:', {
+      isPlaying,
+      currentTime,
+      storedPlaybackState: playerState.playbackState
+    });
+    
+    // Try to get live playback state from YouTube player
+    try {
+      const liveState = await this.getLivePlaybackState();
+      isPlaying = liveState;
+      logger.debug('🎵 YouTube DJ | Using live playback state:', isPlaying);
+    } catch (error) {
+      logger.debug('🎵 YouTube DJ | Using fallback playback state:', isPlaying);
+    }
     
     // Get playlist info if applicable
     const playlistInfo = await this.getPlaylistInfo();
@@ -84,17 +126,17 @@ export class HeartbeatBuilder {
       ...playlistInfo
     };
     
-    // Debug log for playlist heartbeats
-    if (playlistInfo.playlistId) {
-      logger.debug('🎵 YouTube DJ | Building playlist heartbeat:', {
-        ...playlistInfo,
-        videoId: currentVideo?.videoId,
-        currentTime,
-        isPlaying
-      });
-    }
+    logger.debug('🎵 YouTube DJ | Built heartbeat:', {
+      videoId: heartbeat.videoId,
+      currentTime: heartbeat.currentTime,
+      isPlaying: heartbeat.isPlaying,
+      duration: heartbeat.duration
+    });
     
     return heartbeat;
+    } finally {
+      this.isBuilding = false;
+    }
   }
 
   /**
@@ -108,11 +150,40 @@ export class HeartbeatBuilder {
     }
     
     try {
-      return await TimeRequestService.requestCurrentTime(storedTime);
+      return await TimeRequestService.requestCurrentTime(storedTime, 500);
     } catch (error) {
       logger.debug('🎵 YouTube DJ | Failed to get current time from widget, using stored time:', storedTime);
       return storedTime;
     }
+  }
+
+  /**
+   * Get live playback state directly from YouTube player
+   */
+  private async getLivePlaybackState(): Promise<boolean> {
+    return new Promise<boolean>((resolve, reject) => {
+      let responseReceived = false;
+      
+      const timeout = setTimeout(() => {
+        if (!responseReceived) {
+          logger.debug('🎵 YouTube DJ | Playback state request timed out - adapter may not be ready');
+          reject(new Error('Playback state request timed out'));
+        }
+      }, 500); // Allow adequate time for adapter response
+      
+      const stateHandler = (data: { isPlaying: boolean }) => {
+        if (responseReceived) return; // Prevent double responses
+        responseReceived = true;
+        clearTimeout(timeout);
+        Hooks.off('youtubeDJ.playbackStateResponse', stateHandler);
+        logger.debug('🎵 YouTube DJ | Received live playback state from adapter:', data.isPlaying);
+        resolve(data.isPlaying);
+      };
+      
+      logger.debug('🎵 YouTube DJ | Requesting live playback state from adapter...');
+      Hooks.on('youtubeDJ.playbackStateResponse', stateHandler);
+      Hooks.callAll('youtubeDJ.getPlaybackStateRequest');
+    });
   }
 
   /**

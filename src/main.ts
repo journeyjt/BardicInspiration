@@ -163,14 +163,26 @@ Hooks.once('init', () => {
 });
 
 Hooks.once('ready', async () => {
+  console.log('🎵 BARDIC-INSPIRATION | Module ready hook starting');
   logger.info('Module ready');
   
-  // Load SessionStore state from world settings
-  await SessionStore.getInstance().loadFromWorld();
-  logger.info('YouTube DJ state loaded from world settings');
+  let store: SessionStore;
   
-  // Initialize global service managers
-  const store = SessionStore.getInstance();
+  try {
+    console.log('🎵 BARDIC-INSPIRATION | Getting SessionStore instance...');
+    // Load SessionStore state from world settings
+    await SessionStore.getInstance().loadFromWorld();
+    console.log('🎵 BARDIC-INSPIRATION | SessionStore loaded from world');
+    logger.info('YouTube DJ state loaded from world settings');
+    
+    // Initialize global service managers
+    console.log('🎵 BARDIC-INSPIRATION | Getting SessionStore for services...');
+    store = SessionStore.getInstance();
+    console.log('🎵 BARDIC-INSPIRATION | SessionStore obtained successfully');
+  } catch (error) {
+    console.error('🎵 BARDIC-INSPIRATION | ERROR in ready hook:', error);
+    return;
+  }
   
   // Initialize global SocketManager for message handling
   const socketManager = new SocketManager(store);
@@ -182,7 +194,9 @@ Hooks.once('ready', async () => {
   logger.info('YouTube DJ SessionManager initialized globally');
   
   // Initialize global PlayerManager for playback control
+  console.log('🎵 BARDIC-INSPIRATION | About to create PlayerManager...');
   const playerManager = new PlayerManager(store);
+  console.log('🎵 BARDIC-INSPIRATION | PlayerManager created successfully');
   logger.info('YouTube DJ PlayerManager initialized globally');
   
   // Initialize global QueueManager for queue operations

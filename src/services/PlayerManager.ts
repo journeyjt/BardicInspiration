@@ -21,6 +21,7 @@ export class PlayerManager {
   private heartbeatInterval: number | null = null;
 
   constructor(store: SessionStore) {
+    console.log('🎵 BARDIC-INSPIRATION | PlayerManager constructor called');
     this.store = store;
     
     // Listen to state changes for player management
@@ -44,11 +45,34 @@ export class PlayerManager {
     Hooks.on('youtubeDJ.seekCommand', this.onSeekCommand.bind(this));
     Hooks.on('youtubeDJ.loadCommand', this.onLoadCommand.bind(this));
     Hooks.on('youtubeDJ.loadPlaylistCommand', this.onLoadPlaylistCommand.bind(this));
+    
+    // Check if this user is already DJ and should start heartbeats
+    this.checkInitialDJStatus();
   }
 
   // Legacy initializePlayer removed - widget handles player initialization
 
   // Legacy destroyPlayer removed - widget handles player lifecycle
+
+  /**
+   * Check if user is already DJ on initialization and start heartbeats
+   */
+  private checkInitialDJStatus(): void {
+    console.log('🎵 BARDIC-INSPIRATION | checkInitialDJStatus called');
+    // Small delay to ensure state is fully loaded
+    setTimeout(() => {
+      const isDJ = this.store.isDJ();
+      console.log('🎵 BARDIC-INSPIRATION | DJ status check:', isDJ);
+      if (isDJ) {
+        console.log('🎵 BARDIC-INSPIRATION | User is DJ - starting heartbeat');
+        logger.info('🎵 YouTube DJ | User is DJ on PlayerManager init, starting heartbeat');
+        this.startHeartbeat();
+      } else {
+        console.log('🎵 BARDIC-INSPIRATION | User is not DJ');
+        logger.debug('🎵 YouTube DJ | User is not DJ on PlayerManager init');
+      }
+    }, 100);
+  }
 
   /**
    * Play current video
@@ -361,19 +385,25 @@ export class PlayerManager {
    * Start heartbeat for synchronization
    */
   startHeartbeat(): void {
+    console.log('🎵 BARDIC-INSPIRATION | startHeartbeat called');
     if (!this.store.isDJ()) {
+      console.log('🎵 BARDIC-INSPIRATION | Not DJ, skipping heartbeat start');
       logger.debug('🎵 YouTube DJ | Not DJ, skipping heartbeat start');
       return;
     }
 
+    console.log('🎵 BARDIC-INSPIRATION | User is DJ, starting heartbeat');
     this.stopHeartbeat();
     
     const frequency = this.store.getPlayerState().heartbeatFrequency;
+    console.log('🎵 BARDIC-INSPIRATION | Heartbeat frequency:', frequency);
     logger.info('🎵 YouTube DJ | Starting heartbeat timer with frequency:', frequency);
 
     this.heartbeatInterval = window.setInterval(() => {
       logger.debug('🎵 YouTube DJ | Heartbeat timer tick');
-      this.sendHeartbeat();
+      this.sendHeartbeat().catch(error => {
+        logger.error('🎵 YouTube DJ | Heartbeat send failed:', error);
+      });
     }, frequency);
 
     logger.debug('🎵 YouTube DJ | Heartbeat started for session activity tracking');
@@ -902,14 +932,22 @@ export class PlayerManager {
    */
   private handleDJChange(previousDJ: string | null, currentDJ: string | null): void {
     const currentUserId = game.user?.id;
+    
+    logger.debug('🎵 YouTube DJ | DJ change detected:', {
+      previousDJ,
+      currentDJ,
+      currentUserId,
+      userBecameDJ: currentDJ === currentUserId && previousDJ !== currentUserId,
+      userLostDJ: previousDJ === currentUserId && currentDJ !== currentUserId
+    });
 
     if (currentDJ === currentUserId && previousDJ !== currentUserId) {
       // User became DJ - start heartbeat immediately for session activity tracking
-      logger.debug('🎵 YouTube DJ | User became DJ, starting heartbeat for activity tracking');
+      logger.info('🎵 YouTube DJ | User became DJ, starting heartbeat for activity tracking');
       this.startHeartbeat();
     } else if (previousDJ === currentUserId && currentDJ !== currentUserId) {
       // User lost DJ role - stop heartbeat
-      logger.debug('🎵 YouTube DJ | User lost DJ role, stopping heartbeat');
+      logger.info('🎵 YouTube DJ | User lost DJ role, stopping heartbeat');
       this.stopHeartbeat();
     }
   }
