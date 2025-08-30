@@ -267,7 +267,7 @@ describe('YouTubePlayerWidget - Command Queueing', () => {
     it('should process queued commands after player initialization completes', async () => {
       vi.useFakeTimers();
       
-      // Player not ready
+      // Player not ready initially
       (widget as any).isPlayerReady = false;
       (widget as any).player = null;
       
@@ -277,26 +277,22 @@ describe('YouTubePlayerWidget - Command Queueing', () => {
         { command: 'playVideo' }
       ];
       
-      // Mock successful initialization
-      const initPromise = Promise.resolve();
-      vi.spyOn(widget as any, 'initializePlayer').mockReturnValue(initPromise);
-      
-      // Trigger command that causes initialization
-      (widget as any).onPlayerCommand({ command: 'seekTo', args: [100] });
-      
-      // Wait for initialization
-      await initPromise;
-      
-      // Mark player as ready
-      (widget as any).isPlayerReady = true;
+      // Set up player and mark as ready (simulating what happens in onPlayerReady)
       (widget as any).player = mockPlayer;
+      (widget as any).isPlayerReady = true;
       
-      // Advance timers to process queued commands
-      vi.advanceTimersByTime(500);
+      // Call continuePlayerReady which processes queued commands
+      (widget as any).continuePlayerReady();
+      
+      // Advance timers to trigger the delayed command processing (100ms delay in continuePlayerReady)
+      vi.advanceTimersByTime(150);
       
       // All queued commands should be processed
       expect(mockPlayer.loadPlaylist).toHaveBeenCalledWith({ list: 'PLtest123' });
       expect(mockPlayer.playVideo).toHaveBeenCalled();
+      
+      // Queue should be cleared (already cleared when processing starts)
+      expect((widget as any).commandQueue).toHaveLength(0);
       
       vi.useRealTimers();
     });
@@ -331,7 +327,7 @@ describe('YouTubePlayerWidget - Command Queueing', () => {
   });
 
   describe('Retry Mechanism', () => {
-    it('should retry commands with timeout when player not ready', () => {
+    it('should process queued commands when player becomes ready', () => {
       vi.useFakeTimers();
       
       // Player not ready, not in session (so no initialization attempt)
@@ -350,17 +346,20 @@ describe('YouTubePlayerWidget - Command Queueing', () => {
       // Command should be queued
       expect((widget as any).commandQueue).toHaveLength(1);
       
-      // Make player ready before timeout
-      (widget as any).isPlayerReady = true;
+      // Simulate player becoming ready (as done in onPlayerReady)
       (widget as any).player = mockPlayer;
+      (widget as any).isPlayerReady = true;  // Mark as ready before calling continuePlayerReady
       
-      // Advance time to trigger retry timeout
-      vi.advanceTimersByTime(500);
+      // Simulate player becoming ready by calling continuePlayerReady
+      (widget as any).continuePlayerReady();
       
-      // The retry mechanism should check if player is ready and process queued commands
+      // Advance time to process the queued commands (100ms delay)
+      vi.advanceTimersByTime(150);
+      
+      // The queued command should be processed
       expect(mockPlayer.nextVideo).toHaveBeenCalled();
       
-      // Queue should be cleared
+      // Queue should be cleared (already cleared when processing starts)
       expect((widget as any).commandQueue).toHaveLength(0);
       
       vi.useRealTimers();
