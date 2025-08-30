@@ -16,6 +16,7 @@ export interface YouTubeDJMessage {
 
 export class QueueManager {
   private store: SessionStore;
+  private savedQueuesManager?: any; // Will be set after initialization
 
   constructor(store: SessionStore) {
     this.store = store;
@@ -34,6 +35,22 @@ export class QueueManager {
     // Listen to error handling events
     Hooks.on('youtubeDJ.skipToNext', this.onSkipToNext.bind(this));
     Hooks.on('youtubeDJ.playlistEmbedError', this.onPlaylistEmbedError.bind(this));
+  }
+
+  /**
+   * Set reference to SavedQueuesManager (called after initialization)
+   */
+  setSavedQueuesManager(savedQueuesManager: any): void {
+    this.savedQueuesManager = savedQueuesManager;
+  }
+
+  /**
+   * Mark queue as modified if there's a currently loaded saved queue
+   */
+  private markQueueAsModified(): void {
+    if (this.savedQueuesManager) {
+      this.savedQueuesManager.markQueueAsModified();
+    }
   }
 
   /**
@@ -215,6 +232,9 @@ export class QueueManager {
       }
     });
 
+    // Mark queue as modified if there's a loaded saved queue
+    this.markQueueAsModified();
+
     // Broadcast queue update
     this.broadcastMessage({
       type: 'QUEUE_ADD',
@@ -279,6 +299,9 @@ export class QueueManager {
       }
     });
 
+    // Mark queue as modified if there's a loaded saved queue
+    this.markQueueAsModified();
+
     // Broadcast queue update
     this.broadcastMessage({
       type: 'QUEUE_REMOVE',
@@ -337,6 +360,9 @@ export class QueueManager {
         currentIndex: newIndex
       }
     });
+
+    // Mark queue as modified if there's a loaded saved queue
+    this.markQueueAsModified();
 
     // Broadcast queue update
     this.broadcastMessage({
@@ -611,7 +637,10 @@ export class QueueManager {
         items: [],
         currentIndex: -1,
         mode: 'single-dj',
-        djUserId: this.store.getSessionState().djUserId
+        djUserId: this.store.getSessionState().djUserId,
+        savedQueues: this.store.getQueueState().savedQueues,
+        currentlyLoadedQueueId: null, // Clear loaded queue tracking
+        isModifiedFromSaved: false
       },
       player: {
         ...this.store.getPlayerState(),
