@@ -115,6 +115,15 @@ export class SavedQueuesManager {
     // Save to world settings
     await game.settings.set('core', 'youtubeDJ.savedQueues', updatedQueues);
 
+    // Update queue state to track this as the currently loaded queue
+    this.store.updateState({
+      queue: {
+        ...currentQueue,
+        currentlyLoadedQueueId: savedQueue.id,
+        isModifiedFromSaved: false
+      }
+    });
+
     // Broadcast save event
     this.broadcastMessage({
       type: 'QUEUE_SAVED',
@@ -160,12 +169,15 @@ export class SavedQueuesManager {
       newItems = [...currentQueue.items, ...savedQueue.items];
     }
 
-    // Update queue state
+    // Update queue state with tracking
     this.store.updateState({
       queue: {
         ...currentQueue,
         items: newItems,
-        currentIndex: replace && newItems.length > 0 ? 0 : currentQueue.currentIndex
+        currentIndex: replace && newItems.length > 0 ? 0 : currentQueue.currentIndex,
+        // Track the loaded queue only if we replaced (not if we appended)
+        currentlyLoadedQueueId: replace ? queueId : null,
+        isModifiedFromSaved: false
       }
     });
 
@@ -322,6 +334,134 @@ export class SavedQueuesManager {
       to: trimmedName
     });
     ui.notifications?.success(`Queue renamed to "${trimmedName}"`);
+  }
+
+  /**
+   * Save changes to the currently loaded saved queue
+   */
+  async saveChangesToCurrentQueue(): Promise<SavedQueue | null> {
+    if (!this.store.isDJ()) {
+      throw new Error('Only the DJ can save queue changes');
+    }
+
+    const currentQueue = this.store.getQueueState();
+    
+    // Check if there's a currently loaded saved queue
+    if (!currentQueue.currentlyLoadedQueueId) {
+      throw new Error('No saved queue is currently loaded. Use "Save Queue" to create a new saved queue.');
+    }
+
+    // Check if the queue has been modified
+    if (!currentQueue.isModifiedFromSaved) {
+      ui.notifications?.info('No changes to save - queue is already up to date');
+      return null;
+    }
+
+    const savedQueue = this.getSavedQueue(currentQueue.currentlyLoadedQueueId);
+    if (!savedQueue) {
+      throw new Error('Currently loaded saved queue not found');
+    }
+
+    if (currentQueue.items.length === 0) {
+      throw new Error('Cannot save an empty queue');
+    }
+
+    logger.debug('🎵 YouTube DJ | Saving changes to currently loaded queue:', savedQueue.name);
+
+    // Create updated saved queue
+    const updatedQueue: SavedQueue = {
+      ...savedQueue,
+      items: [...currentQueue.items], // Deep copy current items
+      updatedAt: Date.now()
+    };
+
+    // Update saved queues list
+    const savedQueues = this.getSavedQueues();
+    const updatedQueues = savedQueues.map(q => 
+      q.id === currentQueue.currentlyLoadedQueueId ? updatedQueue : q
+    );
+
+    // Save to world settings
+    await game.settings.set('core', 'youtubeDJ.savedQueues', updatedQueues);
+
+    // Update queue state to reflect saved changes
+    this.store.updateState({
+      queue: {
+        ...currentQueue,
+        isModifiedFromSaved: false
+      }
+    });
+
+    // Broadcast save event
+    this.broadcastMessage({
+      type: 'QUEUE_SAVED',
+      userId: game.user?.id || '',
+      timestamp: Date.now(),
+      data: { 
+        savedQueue: updatedQueue,
+        isOverwrite: true,
+        isCurrentQueueUpdate: true
+      }
+    });
+
+    logger.info('🎵 YouTube DJ | Changes saved to queue:', savedQueue.name);
+    ui.notifications?.success(`Changes saved to "${savedQueue.name}"`);
+    
+    return updatedQueue;
+  }
+
+  /**
+   * Get information about the currently loaded saved queue
+   */
+  getCurrentlyLoadedQueue(): { savedQueue: SavedQueue | null; hasChanges: boolean } {
+    const currentQueue = this.store.getQueueState();
+    
+    if (!currentQueue.currentlyLoadedQueueId) {
+      return { savedQueue: null, hasChanges: false };
+    }
+
+    const savedQueue = this.getSavedQueue(currentQueue.currentlyLoadedQueueId);
+    return { 
+      savedQueue, 
+      hasChanges: currentQueue.isModifiedFromSaved 
+    };
+  }
+
+  /**
+   * Mark the current queue as modified from the saved version
+   */
+  markQueueAsModified(): void {
+    const currentQueue = this.store.getQueueState();
+    
+    if (currentQueue.currentlyLoadedQueueId && !currentQueue.isModifiedFromSaved) {
+      this.store.updateState({
+        queue: {
+          ...currentQueue,
+          isModifiedFromSaved: true
+        }
+      });
+      
+      logger.debug('🎵 YouTube DJ | Queue marked as modified from saved version');
+    }
+  }
+
+  /**
+   * Clear the currently loaded queue tracking (when creating a new queue from scratch)
+   */
+  clearCurrentlyLoadedQueue(): void {
+    const currentQueue = this.store.getQueueState();
+    
+    if (currentQueue.currentlyLoadedQueueId || currentQueue.isModifiedFromSaved) {
+      this.store.updateState({
+        queue: {
+          ...currentQueue,
+          currentlyLoadedQueueId: null,
+          isModifiedFromSaved: false
+        }
+      });
+      
+      logger.debug('🎵 YouTube DJ | Cleared currently loaded queue tracking');
+    }
   }
 
   /**

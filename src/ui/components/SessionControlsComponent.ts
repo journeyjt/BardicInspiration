@@ -15,6 +15,7 @@ import { SessionStore } from '../../state/SessionStore.js';
 import { SessionManager } from '../../services/SessionManager.js';
 import { StateChangeEvent } from '../../state/StateTypes.js';
 import { logger } from '../../lib/logger.js';
+import { HandoffDialog } from '../HandoffDialog.js';
 
 export class SessionControlsComponent extends BaseComponent {
   private sessionManager: SessionManager;
@@ -119,71 +120,12 @@ export class SessionControlsComponent extends BaseComponent {
       const sessionState = this.store.getSessionState();
       const eligibleMembers = sessionState.members.filter(m => m.isActive && !m.isDJ);
       
-      if (eligibleMembers.length === 0) {
-        ui.notifications?.warn('No eligible users to hand off DJ role to');
-        return;
-      }
-
-      // Create options for the dialog
-      const choices: Record<string, string> = {};
-      eligibleMembers.forEach(member => {
-        choices[member.userId] = member.name;
-      });
-
-      // Show handoff dialog using FoundryVTT v2 dialog system
-      const result = await foundry.applications.api.DialogV2.wait({
-        window: {
-          title: 'Hand Off DJ Role',
-          icon: 'fas fa-exchange-alt',
-        },
-        position: {
-          width: 450,
-        },
-        content: `
-          <form class="bardic-inspiration-dialog handoff-dialog">
-            <div class="form-group">
-              <label for="targetUser">Select a user to hand off DJ role to:</label>
-            </div>
-            <div class="form-group">
-              <select name="targetUser" id="targetUser">
-                ${Object.entries(choices).map(([userId, name]) => 
-                  `<option value="${userId}">${name}</option>`
-                ).join('')}
-              </select>
-            </div>
-            <div class="form-group">
-              <div class="hint-text">
-                The selected user will become the new DJ and gain full control over playback.
-              </div>
-            </div>
-          </form>
-        `,
-        buttons: [
-          {
-            action: 'cancel',
-            label: 'Cancel',
-            icon: 'fas fa-times'
-          },
-          {
-            action: 'confirm',
-            label: 'Hand Off DJ Role',
-            icon: 'fas fa-exchange-alt',
-            callback: (event, button, dialog) => {
-              const select = dialog.element.querySelector('select[name="targetUser"]') as HTMLSelectElement;
-              return select?.value;
-            }
-          }
-        ],
-        modal: true,
-        close: () => null
-      });
-
-      const selectedUserId = result;
-
+      const result = await HandoffDialog.show(eligibleMembers);
+      
       // If user selected someone, perform the handoff
-      if (selectedUserId) {
-        await this.sessionManager.handoffDJRole(selectedUserId);
-        const selectedMember = eligibleMembers.find(m => m.userId === selectedUserId);
+      if (result?.confirmed && result.selectedUserId) {
+        await this.sessionManager.handoffDJRole(result.selectedUserId);
+        const selectedMember = eligibleMembers.find(m => m.userId === result.selectedUserId);
         ui.notifications?.success(`DJ role handed off to ${selectedMember?.name}`);
       }
       

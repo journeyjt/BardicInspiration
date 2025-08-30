@@ -775,11 +775,18 @@ export class PlayerManager {
       return; // DJ doesn't sync to their own heartbeat
     }
 
+    // Skip sync if player is still initializing
+    const playerState = this.store.getPlayerState();
+    if (playerState.isInitializing) {
+      logger.debug('🎵 YouTube DJ | Skipping heartbeat sync - player still initializing');
+      return;
+    }
+
     // Only sync if we have a different video or significant time difference
-    const currentVideo = this.store.getPlayerState().currentVideo;
+    const currentVideo = playerState.currentVideo;
     
-    // Check if video changed
-    if (currentVideo?.videoId !== heartbeat.videoId) {
+    // Check if video changed (only if heartbeat has a video)
+    if (heartbeat.videoId && currentVideo?.videoId !== heartbeat.videoId) {
       logger.debug('🎵 YouTube DJ | Syncing to new video from heartbeat:', heartbeat.videoId);
       // Send load command to widget
       Hooks.callAll('youtubeDJ.playerCommand', { 

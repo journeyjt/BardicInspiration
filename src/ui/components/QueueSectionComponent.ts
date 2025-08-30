@@ -28,6 +28,8 @@ export class QueueSectionComponent extends BaseComponent {
         'queue.items',
         'queue.currentIndex',
         'queue.mode', // Need to know queue mode for Group Mode
+        'queue.currentlyLoadedQueueId', // Need to know if a saved queue is loaded
+        'queue.isModifiedFromSaved', // Need to know if changes exist
         'session.djUserId', // Need to know DJ status for controls
         'session.hasJoinedSession', // Need to know if user is in session
         'session.members', // Need to check if user is active member
@@ -90,6 +92,10 @@ export class QueueSectionComponent extends BaseComponent {
       }));
     }
 
+    // Get currently loaded queue info
+    const savedQueuesManager = (globalThis as any).youtubeDJSavedQueuesManager;
+    const currentlyLoadedInfo = savedQueuesManager ? savedQueuesManager.getCurrentlyLoadedQueue() : { savedQueue: null, hasChanges: false };
+
     return {
       // Currently playing item
       currentlyPlaying,
@@ -100,6 +106,11 @@ export class QueueSectionComponent extends BaseComponent {
       // Queue stats
       queueCount: upcomingQueue.length,
       hasQueue: queueState.items.length > 0,
+      
+      // Currently loaded queue info
+      hasLoadedQueue: !!currentlyLoadedInfo.savedQueue,
+      loadedQueueName: currentlyLoadedInfo.savedQueue?.name || '',
+      hasLoadedQueueChanges: currentlyLoadedInfo.hasChanges,
       
       // Playback state
       isPlaying: playerState.playbackState === 'playing',
@@ -443,6 +454,35 @@ export class QueueSectionComponent extends BaseComponent {
     } catch (error) {
       logger.error('🎵 YouTube DJ | Failed to save queue:', error);
       ui.notifications?.error('Failed to save queue');
+    }
+  }
+
+  /**
+   * Handle save changes button click
+   */
+  async onSaveChangesClick(): Promise<void> {
+    if (!this.store.isDJ()) {
+      ui.notifications?.warn('Only the DJ can save queue changes');
+      return;
+    }
+
+    try {
+      const savedQueuesManager = (globalThis as any).youtubeDJSavedQueuesManager;
+      if (!savedQueuesManager) {
+        ui.notifications?.error('Saved queues manager not initialized');
+        return;
+      }
+
+      const result = await savedQueuesManager.saveChangesToCurrentQueue();
+      if (!result) {
+        // No changes to save message already shown by the manager
+        return;
+      }
+
+      logger.debug('🎵 YouTube DJ | Queue changes saved successfully');
+    } catch (error: any) {
+      logger.error('🎵 YouTube DJ | Failed to save queue changes:', error);
+      ui.notifications?.error(`Failed to save changes: ${error.message || 'Unknown error'}`);
     }
   }
 

@@ -20,6 +20,7 @@ export class YouTubePlayerWidget {
   private commandQueue: Array<{ command: string; args?: any[] }> = []; // Queue for commands during player recreation
   private isDestroyed: boolean = false;
   private activeTimers: Set<NodeJS.Timeout> = new Set();
+  private lastQueuedLoadCommand: { videoId: string; timestamp: number } | null = null; // Track last queued load to prevent duplicates
 
   constructor() {
     this.store = SessionStore.getInstance();
@@ -171,7 +172,13 @@ export class YouTubePlayerWidget {
     // Update header controls based on session state
     const widgetControls = this.widgetElement.querySelector('.widget-controls');
     if (widgetControls) {
+      const isDJ = state.session.djUserId === game.user?.id;
       widgetControls.innerHTML = hasJoinedSession ? `
+        ${isDJ ? `
+          <button class="widget-btn playback-control" onclick="window.youtubeDJWidget?.togglePlayPause()" title="${isPlaying ? 'Pause' : 'Play'}">
+            <i class="fas fa-${isPlaying ? 'pause' : 'play'}"></i>
+          </button>
+        ` : ''}
         <button class="widget-btn" onclick="game.modules.get('bardic-inspiration').api.openYoutubeDJ()" title="Open DJ Controls">
           <i class="fas fa-sliders-h"></i>
         </button>
@@ -200,7 +207,6 @@ export class YouTubePlayerWidget {
     if (widgetTitle) {
       widgetTitle.innerHTML = `
         <i class="fas fa-music"></i>
-        YouTube DJ
         ${hasJoinedSession && this.isMinimized() && currentVideo ? `
           <span class="compact-status">
             <i class="fas fa-${isPlaying ? 'play' : 'pause'}" style="color: ${isPlaying ? '#28a745' : '#ffc107'}; margin-left: 5px;"></i>
@@ -423,6 +429,45 @@ export class YouTubePlayerWidget {
           display: flex;
           align-items: center;
           gap: 5px;
+          flex: 1;
+          min-width: 0;
+        }
+        
+        .widget-title i.fa-music {
+          color: #06b6d4;
+          font-size: 14px;
+        }
+        
+        .compact-status {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+          flex: 1;
+          min-width: 0;
+        }
+        
+        .compact-track-info {
+          font-size: 11px;
+          color: #ccc;
+          font-weight: normal;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 150px;
+        }
+        
+        .session-indicator {
+          font-size: 11px;
+          color: #28a745;
+          font-weight: 500;
+          margin-left: 4px;
+        }
+        
+        .join-prompt {
+          font-size: 11px;
+          color: #ffc107;
+          font-weight: 500;
+          margin-left: 4px;
         }
         
         .widget-status {
@@ -495,6 +540,15 @@ export class YouTubePlayerWidget {
         
         .widget-btn.danger:hover {
           background: #c82333;
+        }
+        
+        .widget-btn.playback-control {
+          background: #28a745;
+          min-width: 28px;
+        }
+        
+        .widget-btn.playback-control:hover {
+          background: #218838;
         }
         
         .current-video {
@@ -600,15 +654,24 @@ export class YouTubePlayerWidget {
       <div class="widget-header">
         <div class="widget-title">
           <i class="fas fa-music"></i>
-          YouTube DJ
           ${hasJoinedSession && this.isMinimized() && currentVideo ? `
             <span class="compact-status">
-              <i class="fas fa-${isPlaying ? 'play' : 'pause'}" style="color: ${isPlaying ? '#28a745' : '#ffc107'}; margin-left: 5px;"></i>
+              <i class="fas fa-${isPlaying ? 'play' : 'pause'}" style="color: ${isPlaying ? '#28a745' : '#ffc107'}; margin-left: 8px;"></i>
+              <span class="compact-track-info">${currentVideo.title || 'Unknown'}</span>
             </span>
-          ` : ''}
+          ` : hasJoinedSession ? `
+            <span class="session-indicator">In Session</span>
+          ` : `
+            <span class="join-prompt">Join to Listen</span>
+          `}
         </div>
         <div class="widget-controls">
           ${hasJoinedSession ? `
+            ${state.session.djUserId === game.user?.id ? `
+              <button class="widget-btn playback-control" onclick="window.youtubeDJWidget?.togglePlayPause()" title="${isPlaying ? 'Pause' : 'Play'}">
+                <i class="fas fa-${isPlaying ? 'pause' : 'play'}"></i>
+              </button>
+            ` : ''}
             <button class="widget-btn" onclick="game.modules.get('bardic-inspiration').api.openYoutubeDJ()" title="Open DJ Controls">
               <i class="fas fa-sliders-h"></i>
             </button>
@@ -1010,6 +1073,7 @@ export class YouTubePlayerWidget {
       logger.debug('🎵 YouTube DJ | Processing queued commands:', this.commandQueue.length);
       const queue = [...this.commandQueue];
       this.commandQueue = [];
+      this.lastQueuedLoadCommand = null; // Clear the duplicate tracking
       
       // Process each queued command
       const timer = setTimeout(() => {
@@ -1065,11 +1129,47 @@ export class YouTubePlayerWidget {
     
     const queue = [...this.commandQueue];
     this.commandQueue = [];
+    this.lastQueuedLoadCommand = null; // Clear the duplicate tracking
     
     queue.forEach(cmd => {
       logger.debug('🎵 YouTube DJ | Processing queued command:', cmd.command);
       this.onPlayerCommand(cmd);
     });
+  }
+
+  /**
+   * Queue a command if it's not a duplicate of a recently queued load command
+   */
+  private queueCommandIfUnique(data: { command: string; args?: any[] }): void {
+    // For loadVideoById commands, check if we already have the same video queued recently
+    if (data.command === 'loadVideoById' && data.args && data.args[0]) {
+      const videoId = data.args[0];
+      const now = Date.now();
+      
+      // Check if we've queued this same video in the last 3 seconds
+      if (this.lastQueuedLoadCommand && 
+          this.lastQueuedLoadCommand.videoId === videoId && 
+          (now - this.lastQueuedLoadCommand.timestamp) < 3000) {
+        logger.debug('🎵 YouTube DJ | Skipping duplicate loadVideoById command for:', videoId);
+        return;
+      }
+      
+      // Update last queued load command
+      this.lastQueuedLoadCommand = { videoId, timestamp: now };
+    }
+    
+    // Check if this exact command is already in the queue
+    const isDuplicate = this.commandQueue.some(cmd => 
+      cmd.command === data.command && 
+      JSON.stringify(cmd.args) === JSON.stringify(data.args)
+    );
+    
+    if (isDuplicate) {
+      logger.debug('🎵 YouTube DJ | Skipping duplicate command in queue:', data.command);
+      return;
+    }
+    
+    this.commandQueue.push(data);
   }
 
   /**
@@ -1555,41 +1655,25 @@ export class YouTubePlayerWidget {
     // If player is initializing, queue the command
     if (this.store.getPlayerState().isInitializing) {
       logger.debug('🎵 YouTube DJ | Player is initializing, queueing command:', data.command);
-      this.commandQueue.push(data);
+      this.queueCommandIfUnique(data);
       return;
     }
     
     if (!this.player || !this.isPlayerReady) {
       logger.warn('🎵 YouTube DJ | Widget player not ready for command:', data.command);
-      // Queue the command
-      this.commandQueue.push(data);
+      // Queue the command if it's not a duplicate
+      this.queueCommandIfUnique(data);
       
       // Try to initialize the player if it's not ready and we're in a session
       const sessionState = this.store.getSessionState();
       if (sessionState.hasJoinedSession && !this.store.getPlayerState().isInitializing) {
         logger.debug('🎵 YouTube DJ | Attempting to initialize player for queued command');
         this.initializePlayer().then(() => {
-          // Process queued commands after initialization
-          if (this.commandQueue.length > 0) {
-            setTimeout(() => {
-              const queue = [...this.commandQueue];
-              this.commandQueue = [];
-              queue.forEach(cmd => this.onPlayerCommand(cmd));
-            }, 500);
-          }
+          // Player ready handler will process queued commands
+          logger.debug('🎵 YouTube DJ | Player initialization complete');
         }).catch(error => {
           logger.error('🎵 YouTube DJ | Failed to initialize player:', error);
         });
-      } else {
-        // Set up a retry mechanism to check if player becomes ready
-        setTimeout(() => {
-          if (this.player && this.isPlayerReady && this.commandQueue.length > 0) {
-            logger.debug('🎵 YouTube DJ | Player now ready, retrying queued commands');
-            const queue = [...this.commandQueue];
-            this.commandQueue = [];
-            queue.forEach(cmd => this.onPlayerCommand(cmd));
-          }
-        }, 500);
       }
       
       return;
@@ -1632,8 +1716,26 @@ export class YouTubePlayerWidget {
           break;
         case 'loadVideoById':
           if (typeof this.player.loadVideoById === 'function') {
-            this.player.loadVideoById(data.args?.[0], data.args?.[1] || 0);
-            logger.debug('🎵 YouTube DJ | Load video command sent to player:', data.args?.[0]);
+            const videoId = data.args?.[0];
+            const startTime = data.args?.[1] || 0;
+            this.player.loadVideoById(videoId, startTime);
+            logger.debug('🎵 YouTube DJ | Load video command sent to player:', videoId);
+            
+            // Update the player state with the new video
+            if (videoId) {
+              this.store.updateState({
+                player: {
+                  ...this.store.getPlayerState(),
+                  currentVideo: {
+                    videoId: videoId,
+                    title: '', // Will be updated when video loads
+                    duration: 0,
+                    currentTime: startTime
+                  },
+                  currentTime: startTime
+                }
+              });
+            }
           }
           break;
         case 'cueVideoById':
@@ -1827,7 +1929,11 @@ export class YouTubePlayerWidget {
       if (event.changes.session?.members !== undefined || event.changes.session?.djUserId !== undefined) {
         logger.debug('🎵  Updating member/DJ status (no re-render)');
         logger.debug('🎵 YouTube DJ | Widget updating for member/DJ changes without re-render');
-        // Could add specific member/DJ status updates here if needed
+        
+        // Update controls when DJ status changes
+        if (event.changes.session?.djUserId !== undefined) {
+          this.updateWidgetSelectively(this.store.getState());
+        }
       } else {
         logger.debug('🎵  Updating other elements (no re-render)');
         logger.debug('🎵 YouTube DJ | Widget updating specific elements for player state change');
@@ -1839,13 +1945,37 @@ export class YouTubePlayerWidget {
    * Update compact status display without re-rendering
    */
   private updateCompactStatus(event: StateChangeEvent): void {
-    if (!this.isMinimized()) return;
+    const state = this.store.getState();
+    const isPlaying = state.player.playbackState === 'playing';
+    const isDJ = state.session.djUserId === game.user?.id;
+    const currentVideo = state.player.currentVideo;
     
-    const compactStatus = this.widgetElement?.querySelector('.compact-status i');
-    if (compactStatus && event.changes.player?.playbackState !== undefined) {
-      const isPlaying = this.store.getPlayerState().playbackState === 'playing';
-      compactStatus.className = `fas fa-${isPlaying ? 'play' : 'pause'}`;
-      compactStatus.style.color = isPlaying ? '#28a745' : '#ffc107';
+    // Update compact status when minimized
+    if (this.isMinimized()) {
+      // Update play/pause icon
+      const compactStatusIcon = this.widgetElement?.querySelector('.compact-status i');
+      if (compactStatusIcon && event.changes.player?.playbackState !== undefined) {
+        compactStatusIcon.className = `fas fa-${isPlaying ? 'play' : 'pause'}`;
+        compactStatusIcon.style.color = isPlaying ? '#28a745' : '#ffc107';
+      }
+      
+      // Update track info
+      const trackInfo = this.widgetElement?.querySelector('.compact-track-info');
+      if (trackInfo && event.changes.player?.currentVideo !== undefined) {
+        trackInfo.textContent = currentVideo?.title || 'Unknown';
+      }
+    }
+    
+    // Update play/pause button for DJ regardless of minimized state
+    if (isDJ && event.changes.player?.playbackState !== undefined) {
+      const playPauseBtn = this.widgetElement?.querySelector('.widget-btn.playback-control');
+      if (playPauseBtn) {
+        const icon = playPauseBtn.querySelector('i');
+        if (icon) {
+          icon.className = `fas fa-${isPlaying ? 'pause' : 'play'}`;
+        }
+        playPauseBtn.setAttribute('title', isPlaying ? 'Pause' : 'Play');
+      }
     }
   }
 
@@ -1856,8 +1986,16 @@ export class YouTubePlayerWidget {
     // Update controls section to show DJ controls and leave button
     const controlsSection = this.widgetElement?.querySelector('.widget-controls');
     if (controlsSection) {
-      const playerState = this.store.getPlayerState();
+      const state = this.store.getState();
+      const isDJ = state.session.djUserId === game.user?.id;
+      const isPlaying = state.player.playbackState === 'playing';
+      
       controlsSection.innerHTML = `
+        ${isDJ ? `
+          <button class="widget-btn playback-control" onclick="window.youtubeDJWidget?.togglePlayPause()" title="${isPlaying ? 'Pause' : 'Play'}">
+            <i class="fas fa-${isPlaying ? 'pause' : 'play'}"></i>
+          </button>
+        ` : ''}
         <button class="widget-btn" onclick="game.modules.get('bardic-inspiration').api.openYoutubeDJ()" title="Open DJ Controls">
           <i class="fas fa-sliders-h"></i>
         </button>
@@ -2236,6 +2374,56 @@ export class YouTubePlayerWidget {
   }
 
   /**
+   * Toggle play/pause for the DJ
+   */
+  async togglePlayPause(): Promise<void> {
+    logger.debug('🎵 YouTube DJ | Toggling play/pause from widget...');
+    
+    try {
+      const state = this.store.getState();
+      
+      // Only DJ can control playback
+      if (state.session.djUserId !== game.user?.id) {
+        ui.notifications?.warn('Only the DJ can control playback');
+        return;
+      }
+      
+      const isPlaying = state.player.playbackState === 'playing';
+      
+      // Get PlayerManager instance from global
+      const playerManager = (globalThis as any).youtubeDJPlayerManager;
+      if (!playerManager) {
+        logger.error('🎵 YouTube DJ | PlayerManager not available');
+        return;
+      }
+      
+      logger.debug('🎵 YouTube DJ | Current playback state:', isPlaying ? 'playing' : 'paused');
+      
+      // Use PlayerManager's play/pause methods
+      try {
+        if (isPlaying) {
+          logger.debug('🎵 YouTube DJ | Calling pause...');
+          await playerManager.pause();
+        } else {
+          logger.debug('🎵 YouTube DJ | Calling play...');
+          await playerManager.play();
+        }
+      } catch (playError) {
+        // If play fails due to no video, show a more helpful message
+        if (playError.message?.includes('No video loaded')) {
+          ui.notifications?.warn('No video in queue. Add videos to the queue first.');
+        } else {
+          throw playError;
+        }
+      }
+      
+    } catch (error) {
+      logger.error('🎵 YouTube DJ | Failed to toggle playback:', error);
+      ui.notifications?.error(`Failed to toggle playback: ${error.message || 'Unknown error'}`);
+    }
+  }
+
+  /**
    * Leave session directly from widget
    * THIS IS THE ONLY INTENDED WAY TO LEAVE SESSIONS
    */
@@ -2290,6 +2478,7 @@ export class YouTubePlayerWidget {
       
       // Clear command queue when leaving session
       this.commandQueue = [];
+      this.lastQueuedLoadCommand = null;
       
       // Reset player ready state when leaving
       this.isPlayerReady = false;
@@ -2655,8 +2844,8 @@ export class YouTubePlayerWidget {
       return;
     }
     
-    // Check if video changed
-    if (currentVideo?.videoId !== heartbeat.videoId && heartbeat.videoId) {
+    // Check if video changed (only if heartbeat has a video)
+    if (heartbeat.videoId && currentVideo?.videoId !== heartbeat.videoId) {
       logger.debug('🎵 YouTube DJ | Widget syncing to new video:', heartbeat.videoId);
       this.onPlayerCommand({ 
         command: 'loadVideoById', 
@@ -3159,6 +3348,12 @@ export class YouTubePlayerWidget {
     logger.debug('🎵 YouTube DJ | Syncing UI with actual YouTube player state');
 
     try {
+      // Check if player methods are available
+      if (typeof this.player.isMuted !== 'function' || typeof this.player.getVolume !== 'function') {
+        logger.warn('🎵 YouTube DJ | Player methods not yet available, skipping UI sync');
+        return;
+      }
+
       // Sync mute state with client setting
       const actualMuted = this.player.isMuted();
       const storedMuted = this.getUserMuteState();

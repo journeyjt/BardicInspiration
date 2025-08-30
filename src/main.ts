@@ -193,6 +193,9 @@ Hooks.once('ready', async () => {
   const savedQueuesManager = new SavedQueuesManager(store, queueManager);
   logger.info('YouTube DJ SavedQueuesManager initialized globally');
   
+  // Connect QueueManager to SavedQueuesManager for queue modification tracking
+  queueManager.setSavedQueuesManager(savedQueuesManager);
+  
   // Store global references for access across components
   (globalThis as any).youtubeDJSocketManager = socketManager;
   (globalThis as any).youtubeDJSessionManager = sessionManager;

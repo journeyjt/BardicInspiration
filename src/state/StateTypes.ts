@@ -109,6 +109,9 @@ export interface QueueState {
   mode: 'single-dj' | 'collaborative';
   djUserId: string | null;
   savedQueues: SavedQueue[];
+  // Track the currently loaded saved queue (if any)
+  currentlyLoadedQueueId: string | null;
+  isModifiedFromSaved: boolean; // Track if current queue differs from the loaded saved queue
 }
 
 export interface UIState {
@@ -171,7 +174,9 @@ export function createDefaultQueueState(): QueueState {
     currentIndex: -1,
     mode: 'single-dj',
     djUserId: null,
-    savedQueues: []
+    savedQueues: [],
+    currentlyLoadedQueueId: null,
+    isModifiedFromSaved: false
   };
 }
 
